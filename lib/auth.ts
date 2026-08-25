@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { supabase } from "./supabase";
 
 const ALLOWED_DOMAIN = "squadstack.ai";
 
@@ -17,9 +18,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    signIn({ profile }) {
+    async signIn({ profile }) {
       const email = profile?.email?.toLowerCase() ?? "";
-      return email.endsWith(`@${ALLOWED_DOMAIN}`);
+      if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) return false;
+
+      const { data, error } = await supabase
+        .from("allowed_users")
+        .select("email")
+        .eq("email", email)
+        .single();
+
+      if (error?.code === "PGRST204" || error?.code === "PGRST205" || error?.code === "42P01" || error?.message?.includes("does not exist")) {
+        return true;
+      }
+      if (error?.code === "PGRST116") {
+        return "/not-authorized";
+      }
+      if (!data) return "/not-authorized";
+
+      return true;
     },
     session({ session }) {
       return session;
@@ -27,6 +44,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   pages: {
     signIn: "/",
+    error: "/",
   },
   trustHost: true,
 });

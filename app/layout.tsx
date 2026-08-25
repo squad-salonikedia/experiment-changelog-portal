@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Experiment Changelog | SquadStack",
-  description: "Live experiment log powered by Google Sheets",
+  title: "Flywheel | SquadStack",
+  description: "Track voice agent experiments, measure what moves, share wins",
 };
 
 export default function RootLayout({

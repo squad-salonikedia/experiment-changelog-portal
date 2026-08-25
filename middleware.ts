@@ -1,13 +1,16 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/", "/api/auth"];
+const PUBLIC_PATHS = ["/", "/not-authorized"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
 
-  if (PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith("/api/auth"))) {
+  if (
+    PUBLIC_PATHS.some((path) => pathname === path) ||
+    pathname.startsWith("/api/auth")
+  ) {
     if (isLoggedIn && pathname === "/") {
       return NextResponse.redirect(new URL("/dashboard", req.url));
     }
@@ -26,9 +29,11 @@ export default auth((req) => {
 export const config = {
   matcher: [
     "/",
+    "/not-authorized",
     "/dashboard/:path*",
     "/api/dashboard",
     "/api/experiments/:path*",
+    "/api/admin/:path*",
     "/api/me",
   ],
 };
