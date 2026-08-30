@@ -1206,6 +1206,12 @@ th.fly-col-actions { z-index: 4; }
 }
 .fly-code-block { background: var(--surface-sunken); color: var(--text-primary); border: 1px solid var(--border); }
 
+/* Long one-liners (the skill install command) read better wrapped than
+   scrolled — a half-visible command looks broken. */
+.fly-code-block.wrap { align-items: flex-start; }
+.fly-code-block.wrap code { white-space: pre-wrap; overflow-x: visible; line-height: 1.6; }
+.fly-code-block.wrap .fly-btn { flex: none; margin-top: -1px; }
+
 .fly-token-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
 .fly-token-row {
   display: flex;

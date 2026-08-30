@@ -2184,7 +2184,7 @@
     if (justDownloaded) {
       html += '<div class="fly-msg success show" style="margin-bottom:18px">' +
         "<strong>Downloaded " + esc(justDownloaded) + "</strong><br>" +
-        "Move it into your skills folder and you are done — there is nothing else to set up." +
+        "Run the command below to put it in your skills folder — that is the whole setup." +
         "</div>";
     }
 
@@ -2201,10 +2201,22 @@
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
         "Download my skill</button>";
 
-      html += '<div class="fly-code-block" style="margin-top:12px"><code>mv ~/Downloads/flywheel.md ~/.claude/skills/</code>' +
-        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="mv ~/Downloads/flywheel.md ~/.claude/skills/">Copy</button></div>';
-      html += '<div class="fly-hint" style="margin-bottom:22px">Then ask Claude to “log an experiment” or ' +
-        "“what have we tried on Khatabook” and it will just work. The file is a key — do not share it or commit it.</div>";
+      // Claude Code only discovers a skill as a folder containing SKILL.md. A bare
+      // flywheel.md in ~/.claude/skills/ is silently never loaded, so the command
+      // has to create the folder and rename the file in one go.
+      const installCmd =
+        "mkdir -p ~/.claude/skills/flywheel && mv ~/Downloads/flywheel.md ~/.claude/skills/flywheel/SKILL.md";
+      html += '<div class="fly-code-block wrap" style="margin-top:12px"><code>' + esc(installCmd) + "</code>" +
+        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="' + esc(installCmd) + '">Copy</button></div>';
+      html += '<div class="fly-hint" style="margin-bottom:14px">Claude Code finds the skill as a folder with ' +
+        "<code>SKILL.md</code> inside it — the command above puts it there. Then ask Claude to “log an experiment” " +
+        "or “what have we tried on Khatabook” and it will just work. The file is a key — do not share it, " +
+        "and keep it out of any repo you commit.</div>";
+      html += '<div class="fly-msg info show" style="margin-bottom:22px">' +
+        "<strong>This works in Claude Code.</strong><br>" +
+        "In Claude Desktop and claude.ai the skill loads but cannot reach Flywheel — those run in a sandbox that " +
+        "only allows approved domains. To use it there, ask your Claude org admin to allow <code>" +
+        esc(location.host) + "</code>.</div>";
 
       html += '<div class="fly-field-label" style="margin-bottom:9px">Your keys</div>';
       if (!data.tokens.length) {
@@ -3033,13 +3045,13 @@
             '<div class="fly-welcome-step-num">2</div>' +
             '<div class="fly-welcome-step-text">' +
               '<strong>Drop it into your skills folder</strong>' +
-              '<span>Move it to <code style="font-size:11px;background:var(--surface-sunken);padding:2px 5px;border-radius:4px">~/.claude/skills/</code> and you are done — nothing else to configure.</span>' +
+              '<span>One command puts it at <code style="font-size:11px;background:var(--surface-sunken);padding:2px 5px;border-radius:4px">~/.claude/skills/flywheel/SKILL.md</code> — you get it on the next screen.</span>' +
             '</div>' +
           '</div>' +
           '<div class="fly-welcome-step">' +
             '<div class="fly-welcome-step-num">3</div>' +
             '<div class="fly-welcome-step-text">' +
-              '<strong>Ask Claude to log experiments</strong>' +
+              '<strong>Ask Claude Code to log experiments</strong>' +
               '<span>Say "log this experiment" or "what have we tried on Khatabook" and Claude handles the rest.</span>' +
             '</div>' +
           '</div>' +
