@@ -2206,17 +2206,37 @@
       // has to create the folder and rename the file in one go.
       const installCmd =
         "mkdir -p ~/.claude/skills/flywheel && mv ~/Downloads/flywheel.md ~/.claude/skills/flywheel/SKILL.md";
-      html += '<div class="fly-code-block wrap" style="margin-top:12px"><code>' + esc(installCmd) + "</code>" +
-        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="' + esc(installCmd) + '">Copy</button></div>';
-      html += '<div class="fly-hint" style="margin-bottom:14px">Claude Code finds the skill as a folder with ' +
-        "<code>SKILL.md</code> inside it — the command above puts it there. Then ask Claude to “log an experiment” " +
-        "or “what have we tried on Khatabook” and it will just work. The file is a key — do not share it, " +
+
+      const codeBlock = (cmd) =>
+        '<div class="fly-code-block wrap" style="margin-top:7px"><code>' + esc(cmd) + "</code>" +
+        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="' + esc(cmd) + '">Copy</button></div>';
+
+      const step = (n, title, body) =>
+        '<div class="fly-welcome-step"><div class="fly-welcome-step-num">' + n + "</div>" +
+        '<div class="fly-welcome-step-text"><strong>' + title + "</strong>" +
+        "<span>" + body + "</span></div></div>";
+
+      html += '<div class="fly-field-label" style="margin:24px 0 13px">Set it up in Claude Code</div>';
+      html += '<div class="fly-welcome-steps" style="margin-bottom:16px">';
+      html += step(1, "Install Claude Code",
+        "Skip this if you already have it. On macOS or Linux:" +
+        codeBlock("curl -fsSL https://claude.ai/install.sh | bash") +
+        '<a href="https://code.claude.com/docs/en/overview" target="_blank" rel="noopener">Windows and other options</a>');
+      html += step(2, "Move the file into your skills folder",
+        "Claude Code only finds a skill as a folder with <code>SKILL.md</code> inside it, so this creates " +
+        "the folder and renames the file in one go." + codeBlock(installCmd));
+      html += step(3, "Restart Claude Code, then just ask",
+        "Skills load when a session starts, so open a new one \u2014 then try " +
+        "\u201cwhat have we tried on Khatabook\u201d or \u201clog this experiment\u201d.");
+      html += "</div>";
+      html += '<div class="fly-hint" style="margin-bottom:14px">The file is a key \u2014 do not share it, ' +
         "and keep it out of any repo you commit.</div>";
+      // Chat and Cowork are pending an org-level network allowlist. That is being
+      // handled centrally, so this only names the supported surface — it does not
+      // send every reader off to an admin.
       html += '<div class="fly-msg info show" style="margin-bottom:22px">' +
-        "<strong>This works in Claude Code.</strong><br>" +
-        "In Claude Desktop and claude.ai the skill loads but cannot reach Flywheel — those run in a sandbox that " +
-        "only allows approved domains. To use it there, ask your Claude org admin to allow <code>" +
-        esc(location.host) + "</code>.</div>";
+        "<strong>Use this in Claude Code.</strong><br>" +
+        "Chat and Cowork are not supported yet — we will let you know when they are.</div>";
 
       html += '<div class="fly-field-label" style="margin-bottom:9px">Your keys</div>';
       if (!data.tokens.length) {
