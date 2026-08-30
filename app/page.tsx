@@ -1,4 +1,5 @@
 import { auth, signIn } from "@/lib/auth";
+import { devLoginEnabled } from "@/lib/dev-login";
 
 export default async function HomePage({
   searchParams,
@@ -7,6 +8,7 @@ export default async function HomePage({
 }) {
   const session = await auth();
   const params = await searchParams;
+  const showDevLogin = devLoginEnabled();
 
   if (session?.user?.email) {
     return null;
@@ -15,6 +17,15 @@ export default async function HomePage({
   async function login() {
     "use server";
     await signIn("google", { redirectTo: params.callbackUrl || "/dashboard" });
+  }
+
+  async function devLogin(formData: FormData) {
+    "use server";
+    await signIn("dev", {
+      email: String(formData.get("email") ?? ""),
+      password: String(formData.get("password") ?? ""),
+      redirectTo: params.callbackUrl || "/dashboard",
+    });
   }
 
   return (
@@ -159,18 +170,95 @@ export default async function HomePage({
           </button>
         </form>
 
-        <p
-          style={{
-            margin: "20px 0 0",
-            fontSize: "12px",
-            color: "var(--text-muted)",
-            textAlign: "center",
-            lineHeight: 1.5,
-            animation: "fadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both",
-          }}
-        >
-          For @squadstack.ai team members
-        </p>
+        {showDevLogin && (
+          <div
+            style={{
+              marginTop: "22px",
+              paddingTop: "20px",
+              borderTop: "1px dashed var(--border)",
+              animation: "fadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                marginBottom: "12px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "#b45309",
+                  background: "#fef6e7",
+                  border: "1px solid rgba(180,83,9,0.18)",
+                  borderRadius: "999px",
+                  padding: "2px 8px",
+                }}
+              >
+                Test environment
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                local only — never available on the deployed app
+              </span>
+            </div>
+
+            <form action={devLogin} style={{ display: "grid", gap: "8px" }}>
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="you@squadstack.ai"
+                autoComplete="off"
+                style={{
+                  width: "100%",
+                  border: "1px solid var(--border)",
+                  borderRadius: "9px",
+                  padding: "10px 12px",
+                  fontSize: "13px",
+                  fontFamily: "inherit",
+                }}
+              />
+              <input
+                name="password"
+                type="password"
+                required
+                placeholder="Test password"
+                autoComplete="off"
+                style={{
+                  width: "100%",
+                  border: "1px solid var(--border)",
+                  borderRadius: "9px",
+                  padding: "10px 12px",
+                  fontSize: "13px",
+                  fontFamily: "inherit",
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  border: "1px solid var(--border)",
+                  borderRadius: "9px",
+                  padding: "10px 12px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: "var(--surface, #faf9fe)",
+                  color: "var(--text-primary, #0f0a1e)",
+                  fontFamily: "inherit",
+                }}
+              >
+                Sign in to test environment
+              </button>
+            </form>
+          </div>
+        )}
+
       </div>
 
     </main>

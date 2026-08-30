@@ -18,8 +18,17 @@ export default auth((req) => {
   }
 
   if (!isLoggedIn) {
+    // A bearer token carries its own identity. Redirecting an API client to an
+    // HTML login page would hand it a 200 full of markup instead of an honest
+    // 401, so let the route authenticate it and answer for itself.
+    const bearer = req.headers.get("authorization");
+    if (bearer?.toLowerCase().startsWith("bearer ") && pathname.startsWith("/api/")) {
+      return NextResponse.next();
+    }
+
     const loginUrl = new URL("/", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    const callbackPath = req.nextUrl.search ? pathname + req.nextUrl.search : pathname;
+    loginUrl.searchParams.set("callbackUrl", callbackPath);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -31,9 +40,13 @@ export const config = {
     "/",
     "/not-authorized",
     "/dashboard/:path*",
+    "/signout",
     "/api/dashboard",
     "/api/experiments/:path*",
     "/api/admin/:path*",
     "/api/me",
+    "/api/options",
+    "/api/tokens",
+    "/api/skill",
   ],
 };
