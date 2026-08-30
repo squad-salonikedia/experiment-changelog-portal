@@ -44,6 +44,7 @@
     </nav>
 
     <div class="fly-wrap">
+      <div class="fly-nudge" id="flyNudge"></div>
       <div id="flyStaleBanner"></div>
       <section class="fly-view active" id="flyOverviewView"></section>
       <section class="fly-view" id="flyExperimentsView">
@@ -126,6 +127,12 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- Welcome modal (first-time login, desktop only) -->
+<div class="fly-scrim" id="flyWelcomeScrim"></div>
+<div class="fly-welcome" id="flyWelcome" role="dialog" aria-modal="true" aria-labelledby="flyWelcomeTitle">
+  <div class="fly-welcome-card" id="flyWelcomeCard"></div>
 </div>
 
 <div class="fly-toast-stack" id="flyToastStack"></div>

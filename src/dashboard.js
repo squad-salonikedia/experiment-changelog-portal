@@ -65,9 +65,25 @@
     return name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   }
 
+  function resolveAvatarName(name) {
+    if (!name) return "";
+    var lower = name.toLowerCase();
+    var meFirst = (state.me.firstName || "").toLowerCase();
+    var meFull = (state.me.name || "").toLowerCase();
+    if ((meFirst && lower === meFirst) || (meFull && lower === meFull)) {
+      return state.me.name || state.me.firstName || name;
+    }
+    return name;
+  }
+
   function avatar(name, size) {
+    var resolved = resolveAvatarName(name);
     return '<span class="fly-avatar fly-avatar-' + (size || "sm") + '" style="background:' +
-      avatarColor(name) + '">' + esc(initials(name)) + "</span>";
+      avatarColor(resolved) + '">' + esc(initials(resolved)) + "</span>";
+  }
+
+  function myAvatar(size) {
+    return avatar(state.me.name || state.me.firstName || "User", size);
   }
 
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -219,11 +235,9 @@
     lock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
     close: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     expand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>',
-    mic: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>',
-    stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+    paste: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
     pencilLarge: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
     sheet: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>',
-    wave: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>',
   };
 
   /* ============================================================
@@ -283,6 +297,7 @@
       prompt: row.prompt || "",
       metrics: [metric],
       owner: row.loggedBy || "",
+      ownerEmail: row.ownerEmail || "",
       canEdit: !!row.canEdit,
       reactions: row.reactions || { up: [], down: [] },
     };
@@ -946,18 +961,11 @@
     const e = state.entries.find((x) => x.id === id);
     if (!e) return;
 
-    // Update URL so the link is shareable from the address bar too.
     const url = new URL(window.location);
     url.searchParams.set("exp", id);
     history.replaceState(null, "", url);
 
-    const field = (label, value, opts) => {
-      const empty = !value;
-      return '<div class="fly-field"><div class="fly-field-label">' + esc(label) + "</div>" +
-        '<div class="fly-field-value' + (empty ? " muted" : "") + '">' +
-        (empty ? "Not recorded" : (opts && opts.raw ? value : esc(value))) + "</div></div>";
-    };
-
+    // --- Metrics ---
     let metricsHtml = "";
     for (const m of e.metrics || []) {
       if (!m.metric) continue;
@@ -975,102 +983,135 @@
       metricsHtml += "</div>";
     }
 
+    // --- Reactions ---
     const r = e.reactions || { up: [], down: [] };
+    const hasReactions = r.up.length || r.down.length;
 
+    // --- Header ---
     let html = '<div class="fly-sheet-grip"></div>' +
       '<div class="fly-sheet-head">' +
-      '<div class="fly-sheet-head-main">' +
-        '<div class="fly-sheet-title" id="flySheetTitle">' + esc(e.title) + "</div>" +
-        '<div class="fly-sheet-meta">' +
-          (e.bucket ? '<span class="fly-tag">' + esc(e.bucket) + "</span>" : "") +
-          (e.client ? '<span class="fly-tag fly-tag-plain">' + esc(e.client) + "</span>" : "") +
-          (e.industry ? '<span class="fly-tag fly-tag-plain">' + esc(e.industry) + "</span>" : "") +
+        '<div class="fly-sheet-head-main">' +
+          '<div class="fly-sheet-title" id="flySheetTitle">' + esc(e.title) + "</div>" +
+          '<div class="fly-sheet-byline">' +
+            avatar(e.owner || "", "sm") +
+            '<span>' + esc(e.owner || "Unknown") + '</span>' +
+            '<span class="fly-sheet-byline-sep">·</span>' +
+            '<span>' + esc(formatDate(e.date) || "No date") + '</span>' +
+          '</div>' +
         "</div>" +
-      "</div>" +
-      '<button class="fly-sheet-close" data-action="close-sheet" aria-label="Close">' + ICONS.close + "</button>" +
+        '<button class="fly-sheet-close" data-action="close-sheet" aria-label="Close">' + ICONS.close + "</button>" +
       "</div>";
 
     html += '<div class="fly-sheet-body">';
 
-    html += '<div class="fly-field"><div class="fly-field-label">Impact</div>' +
-      (metricsHtml || '<div class="fly-field-value muted">No metrics recorded</div>') + "</div>";
-    html += field("What changed and why", e.description);
+    // --- Tags row ---
+    const tags = [e.bucket, e.client, e.industry].filter(Boolean);
+    if (tags.length) {
+      html += '<div class="fly-detail-tags">';
+      if (e.bucket) html += '<span class="fly-tag">' + esc(e.bucket) + "</span>";
+      if (e.client) html += '<span class="fly-tag fly-tag-plain">' + esc(e.client) + "</span>";
+      if (e.industry) html += '<span class="fly-tag fly-tag-plain">' + esc(e.industry) + "</span>";
+      html += "</div>";
+    }
+
+    // --- Impact (always shown) ---
+    if (metricsHtml) {
+      html += '<div class="fly-detail-section">' + metricsHtml + "</div>";
+    }
+
+    // --- Description ---
+    html += '<div class="fly-detail-section">';
+    if (e.description) {
+      html += '<div class="fly-detail-desc">' + esc(e.description) + "</div>";
+    } else {
+      html += '<div class="fly-detail-desc fly-detail-empty">No description added' +
+        (e.canEdit ? ' — <a href="#" data-edit="' + esc(e.id) + '">add one</a>' : '') + '</div>';
+    }
+    html += "</div>";
+
+    // --- Prompt ---
     if (e.prompt) {
-      html += '<div class="fly-field"><div class="fly-field-label">Prompt used</div>' +
+      html += '<div class="fly-detail-section">' +
+        '<div class="fly-field-label">Prompt used</div>' +
         '<div class="fly-prompt-box">' + esc(e.prompt) + "</div></div>";
     }
 
-    html += '<div class="fly-field-label" style="margin-bottom:8px">Details</div>';
-    html += '<div class="fly-field-grid">' +
-      field("Client", e.client) +
-      field("Industry", e.industry) +
-      field("Use case", e.useCase) +
-      field("Type of change", e.bucket) +
-      field("Date", formatDate(e.date)) +
-      field("Logged by", e.owner ? avatar(e.owner, "sm") + " " + esc(e.owner) : "", { raw: !!e.owner }) +
-      field("Measurement", e.metrics.some((m) => m.qualitative) ? "Qualitative" : "Quantitative") +
-      field("Metrics tracked", e.metrics.filter((m) => m.metric).map((m) => m.metric).join(", ")) +
-      "</div>";
+    // --- Context: compact key-value grid, always show all fields ---
+    var kvEmpty = '<span class="fly-detail-kv-empty">Not specified</span>';
+    html += '<div class="fly-detail-context">';
+    html += '<div class="fly-detail-kv"><span class="fly-detail-kv-label">Use case</span>' +
+      '<span class="fly-detail-kv-value">' + (e.useCase ? esc(e.useCase) : kvEmpty) + '</span></div>';
+    html += '<div class="fly-detail-kv"><span class="fly-detail-kv-label">Type of change</span>' +
+      '<span class="fly-detail-kv-value">' + (e.bucket ? esc(e.bucket) : kvEmpty) + '</span></div>';
+    html += '<div class="fly-detail-kv"><span class="fly-detail-kv-label">Client</span>' +
+      '<span class="fly-detail-kv-value">' + (e.client ? esc(e.client) : kvEmpty) + '</span></div>';
+    html += '<div class="fly-detail-kv"><span class="fly-detail-kv-label">Industry</span>' +
+      '<span class="fly-detail-kv-value">' + (e.industry ? esc(e.industry) : kvEmpty) + '</span></div>';
+    html += "</div>";
 
-    html += '<div class="fly-field"><div class="fly-field-label">Reactions</div>' +
-      '<div class="fly-field-value' + (!r.up.length && !r.down.length ? " muted" : "") + '">' +
-      (r.up.length || r.down.length
-        ? (r.up.length ? "👍 " + r.up.map(esc).join(", ") : "") +
-          (r.up.length && r.down.length ? " · " : "") +
-          (r.down.length ? "👎 " + r.down.map(esc).join(", ") : "")
-        : "No reactions yet") + "</div></div>";
+    // --- Reactions (only if they exist) ---
+    if (hasReactions) {
+      html += '<div class="fly-detail-reactions">' +
+        (r.up.length ? '<span class="fly-reaction-pill up">👍 ' + r.up.length + '</span>' : '') +
+        (r.down.length ? '<span class="fly-reaction-pill down">👎 ' + r.down.length + '</span>' : '') +
+        '</div>';
+    }
 
-    html += '<div class="fly-field-grid">' +
-      field("Logged on", formatDate(e.createdAt)) +
-      field("Last edited",
-        e.updatedAt && e.createdAt && e.updatedAt.slice(0, 10) !== e.createdAt.slice(0, 10)
-          ? formatDate(e.updatedAt) : "") +
-      "</div>";
+    // --- Separator ---
+    html += '<div class="fly-detail-divider"></div>';
 
-    html += '<div class="fly-field">' +
-      '<div class="fly-field-label">Discussion</div>' +
+    // --- Comments ---
+    html += '<div class="fly-detail-comments">' +
+      '<div class="fly-detail-comments-head">' +
+        '<span class="fly-field-label" style="margin:0">Comments</span>' +
+      '</div>' +
       '<div id="flyCommentsList" data-experiment-id="' + esc(e.id) + '">' +
-        '<div class="fly-comment-loading">Loading comments…</div>' +
+        '<div class="fly-comment-loading">Loading…</div>' +
       '</div>' +
       '<div class="fly-comment-compose">' +
         '<div class="fly-comment-input-row">' +
-          avatar(state.me?.name || "", "sm") +
-          '<textarea id="flyCommentInput" class="fly-comment-input" placeholder="Add a comment or question…" rows="1"></textarea>' +
-        '</div>' +
-        '<div class="fly-comment-actions">' +
+          myAvatar("sm") +
+          '<textarea id="flyCommentInput" class="fly-comment-input" placeholder="Leave a comment…" rows="1"></textarea>' +
           '<button class="fly-btn fly-btn-primary fly-btn-sm" id="flyCommentSend" disabled>Post</button>' +
         '</div>' +
       '</div>' +
     '</div>';
 
-    // Same-client context helps a reader place this change in a sequence.
+    // --- Related experiments ---
     const related = state.entries
       .filter((x) => x.id !== e.id && x.client && x.client === e.client)
       .slice(0, 4);
     if (related.length) {
-      html += '<div class="fly-field"><div class="fly-field-label">Also on ' + esc(e.client) + "</div>";
+      html += '<div class="fly-detail-divider"></div>';
+      html += '<div class="fly-field-label">Also on ' + esc(e.client) + "</div>";
+      html += '<div class="fly-detail-related">';
       for (const rel of related) {
-        html += '<div class="fly-recent-card" data-open="' + esc(rel.id) + '" style="margin-bottom:6px">' +
+        html += '<div class="fly-recent-card" data-open="' + esc(rel.id) + '">' +
           avatar(rel.owner, "sm") +
           '<div class="fly-recent-info"><div class="fly-recent-title">' + esc(rel.title) + "</div>" +
-          '<div class="fly-recent-meta">' + esc(rel.bucket || "—") + "</div></div>" +
-          '<div class="fly-recent-date">' + esc(formatDate(rel.date) || "—") + "</div></div>";
+          '<div class="fly-recent-meta">' + esc(rel.bucket || "") +
+            (rel.bucket && rel.date ? " · " : "") + esc(formatDate(rel.date) || "") + "</div></div></div>";
       }
       html += "</div>";
     }
     html += "</div>";
 
+    // --- Footer ---
     html += '<div class="fly-sheet-foot">';
-    html += '<button class="fly-btn fly-btn-ghost" data-copy-link="' + esc(e.id) + '" title="Copy link to this experiment">' +
-      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
+    html += '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy-link="' + esc(e.id) + '" title="Copy link">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
       " Copy link</button>";
     if (e.canEdit) {
-      html += '<button class="fly-btn fly-btn-primary" data-edit="' + esc(e.id) + '">' + ICONS.edit + " Edit</button>";
-      html += '<button class="fly-btn fly-btn-ghost" data-action="close-sheet">Close</button>';
+      html += '<button class="fly-btn fly-btn-ghost fly-btn-sm fly-btn-danger" data-delete="' + esc(e.id) + '" title="Delete experiment">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+        " Delete</button>";
+      html += '<div style="flex:1"></div>' +
+        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="close-sheet">Close</button>' +
+        '<button class="fly-btn fly-btn-primary fly-btn-sm" data-edit="' + esc(e.id) + '">' + ICONS.edit + " Edit</button>";
     } else {
       html += '<span class="fly-lock-note">' + ICONS.lock +
-        " Only " + esc(e.owner || "the contributor who logged this") + " can edit</span>";
-      html += '<div style="flex:1"></div><button class="fly-btn fly-btn-ghost" data-action="close-sheet">Close</button>';
+        " Only " + esc(e.owner || "the author") + " can edit</span>";
+      html += '<div style="flex:1"></div><button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="close-sheet">Close</button>';
     }
     html += "</div>";
 
@@ -1288,7 +1329,6 @@
   }
 
   function closeDrawer() {
-    stopMic();
     if (closeOverlay($("flyDrawer"), $("flyDrawerScrim"), 220)) {
       state.editingId = null;
       state.batch = null;
@@ -1344,17 +1384,13 @@
       html += '<div class="fly-step-hint">How would you like to add this?</div>';
       html += '<div class="fly-method-grid">' +
         methodCard("manual", ICONS.pencilLarge, "Fill it in", "Step through the fields. Takes about a minute.") +
-        methodCard("note", ICONS.wave, "Speak or paste", "Drop in a note and we'll pre-fill what we can.") +
+        methodCard("note", ICONS.paste, "Paste a note", "Drop in a note and we'll pre-fill what we can.") +
         methodCard("upload", ICONS.sheet, "Upload a file", "Excel or CSV. Good for logging many at once.") +
         "</div>";
       if (state.method === "note") {
         html += '<div style="margin-top:16px"><div class="fly-paste-box">' +
           '<label class="fly-label" style="color:var(--primary)">Your note — one experiment or several</label>' +
-          '<div class="fly-paste-row">' +
-            '<textarea class="fly-textarea" id="flyQuickPaste" placeholder="e.g. Added a how-are-you opener on Khatabook, ADC went from 30 to 15. Also on Flipkart we changed cadence timing, connect rate 40 to 48."></textarea>' +
-            '<button class="fly-mic-btn" id="flyMicBtn" title="Speak your note" aria-label="Speak your note">' + ICONS.mic + "</button>" +
-          "</div>" +
-          '<div class="fly-hint" id="flyMicStatus"></div>' +
+          '<textarea class="fly-textarea" id="flyQuickPaste" placeholder="e.g. Added a how-are-you opener on Khatabook, ADC went from 30 to 15. Also on Flipkart we changed cadence timing, connect rate 40 to 48."></textarea>' +
           '<div class="fly-hint">Keyword matching, not AI — always check the fields before saving.</div>' +
           '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
             '<button class="fly-btn fly-btn-soft fly-btn-sm" data-action="autofill">Pre-fill from this note</button>' +
@@ -1817,7 +1853,6 @@
     }
 
     state.saving = true;
-    paintDrawerFoot();
 
     const payload = {
       client: d.client, industry: d.industry, useCase: d.useCase, bucket: d.bucket,
@@ -1826,8 +1861,20 @@
       metrics: d.metrics.filter((m) => m.metric),
     };
 
+    const editing = state.editingId;
+    const draftId = d._draftId;
+    const isBatch = state.batch && state.batch.index < state.batch.queue.length - 1;
+
+    if (isBatch) {
+      state.batch.index++;
+      loadBatchStep(state.batch.index);
+    } else {
+      state.batch = null;
+      closeDrawer();
+    }
+    toast(editing ? "Saving changes…" : "Saving experiment…", "info");
+
     try {
-      const editing = state.editingId;
       const res = await fetch(
         editing ? "/api/experiments/" + encodeURIComponent(editing) : "/api/experiments",
         {
@@ -1839,39 +1886,31 @@
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        drawerMsg(body.error || "Could not save. Please try again.", "error");
+        toast(body.error || "Could not save. Please try again.", "error");
         state.saving = false;
-        paintDrawerFoot();
         return;
       }
 
-      // Merge the saved rows straight into state so every surface is current
-      // immediately — no refetch delay, no stale dashboard.
       upsertEntries(editing ? [body.entry] : body.entries || []);
       state.saving = false;
 
-      if (state.batch && state.batch.index < state.batch.queue.length - 1) {
-        state.batch.index++;
-        loadBatchStep(state.batch.index);
+      if (isBatch) {
         repaintAll();
         toast("Saved. Next one…", "success");
         return;
       }
 
-      if (state.draft && state.draft._draftId) {
-        deleteDraft(state.draft._draftId);
+      if (draftId) {
+        deleteDraft(draftId);
         paintDraftsBadge();
       }
-      state.batch = null;
-      closeDrawer();
       repaintAll();
-      toast(editing ? "Changes saved for everyone." : "Experiment logged.", "success");
+      toast(editing ? "Changes saved." : "Experiment logged.", "success");
 
       if (!editing && body.entries && body.entries[0]) flashRow(body.entries[0].id);
     } catch (err) {
-      drawerMsg("Network problem — your changes were not saved.", "error");
+      toast("Network problem — your changes were not saved.", "error");
       state.saving = false;
-      paintDrawerFoot();
     }
   }
 
@@ -1884,6 +1923,41 @@
       row.classList.add("fly-row-flash");
       setTimeout(() => row.classList.remove("fly-row-flash"), 1400);
     }, 120);
+  }
+
+  /* ============================================================
+     DELETE EXPERIMENT
+     ============================================================ */
+  function confirmDeleteExperiment(id) {
+    const e = state.entries.find((x) => x.id === id);
+    if (!e) return;
+
+    const sheet = $("flySheet");
+    var foot = sheet.querySelector(".fly-sheet-foot");
+    if (!foot) return;
+
+    foot.style.justifyContent = "flex-end";
+    foot.innerHTML =
+      '<span class="fly-delete-confirm-msg" style="margin-right:auto">Delete this experiment?</span>' +
+      '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="cancel-delete">Cancel</button>' +
+      '<button class="fly-btn fly-btn-sm fly-btn-danger-solid" data-action="do-delete" data-id="' + esc(id) + '">Delete</button>';
+  }
+
+  async function deleteExperiment(id) {
+    try {
+      const res = await fetch("/api/experiments/" + encodeURIComponent(id), { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(body.error || "Could not delete.", "error");
+        return;
+      }
+      state.entries = state.entries.filter((e) => e.id !== id);
+      closeDetail();
+      repaintAll();
+      toast("Experiment deleted.", "success");
+    } catch {
+      toast("Network problem — could not delete.", "error");
+    }
   }
 
   /* ============================================================
@@ -1963,43 +2037,6 @@
     $("flyDrawerTitle").textContent = "Log an experiment";
     $("flyDrawerSub").textContent = "Pre-filled from your note — check every field.";
     paintStep("next");
-  }
-
-  /* ============================================================
-     MIC
-     ============================================================ */
-  let recognition = null;
-  function startMic() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const status = $("flyMicStatus");
-    if (!SR) {
-      if (status) status.textContent = "Speech input is not available in this browser — please type or paste.";
-      return;
-    }
-    const btn = $("flyMicBtn");
-    recognition = new SR();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-IN";
-    const base = ($("flyQuickPaste") || {}).value || "";
-    recognition.onresult = (event) => {
-      let text = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) text += event.results[i][0].transcript;
-      const box = $("flyQuickPaste");
-      if (box) box.value = (base ? base + " " : "") + text;
-    };
-    recognition.onerror = () => { if (status) status.textContent = "Could not hear anything — try typing instead."; stopMic(); };
-    recognition.onend = () => { if (btn) { btn.classList.remove("recording"); btn.innerHTML = ICONS.mic; } };
-    try {
-      recognition.start();
-      if (btn) { btn.classList.add("recording"); btn.innerHTML = ICONS.stop; }
-      if (status) status.textContent = "Listening… tap again to stop.";
-    } catch (e) { /* already running */ }
-  }
-  function stopMic() {
-    if (recognition) { try { recognition.stop(); } catch (e) {} recognition = null; }
-    const btn = $("flyMicBtn");
-    if (btn) { btn.classList.remove("recording"); btn.innerHTML = ICONS.mic; }
   }
 
   /* ============================================================
@@ -2314,7 +2351,7 @@
   function paintUserChip() {
     const label = state.me.firstName || state.me.name || "User";
     $("flyMenuBtn").innerHTML =
-      avatar(label, "md") +
+      myAvatar("md") +
       '<span class="fly-user-name">' + esc(label) + "</span>" +
       (state.me.role === "admin" ? '<span class="fly-user-role">admin</span>' : "") +
       '<span class="fly-chip-caret" style="opacity:.5">▼</span>';
@@ -2510,6 +2547,9 @@
       const editBtn = t.closest("[data-edit]");
       if (editBtn) { e.stopPropagation(); openEditDrawer(editBtn.dataset.edit); return; }
 
+      const deleteBtn = t.closest("[data-delete]");
+      if (deleteBtn) { e.stopPropagation(); confirmDeleteExperiment(deleteBtn.dataset.delete); return; }
+
       const detailBtn = t.closest("[data-detail]");
       if (detailBtn) { e.stopPropagation(); closeSearchDropdown(); openDetail(detailBtn.dataset.detail); return; }
 
@@ -2693,7 +2733,7 @@
         } else {
           // Targeted update: insert the "new" input next to the select
           // without repainting the whole step.
-          const wrapper = combo.closest(".fly-field");
+          const wrapper = combo.parentNode;
           if (wrapper) {
             const existing = wrapper.querySelector(".fly-inline-new");
             if (!existing) {
@@ -2829,6 +2869,17 @@
         break;
       case "download-skill": await downloadSkill(); break;
       case "close-sheet": closeDetail(); break;
+      case "cancel-delete": {
+        const params = new URLSearchParams(window.location.search);
+        const expId = params.get("exp");
+        if (expId) openDetail(expId);
+        break;
+      }
+      case "do-delete": {
+        const delId = actionEl.dataset.id;
+        if (delId) deleteExperiment(delId);
+        break;
+      }
       case "close-drawer": closeDrawer(); break;
       case "next": goStep(state.step + 1); break;
       case "prev": goStep(state.step - 1); break;
@@ -2881,7 +2932,7 @@
         break;
       case "autofill": {
         const note = ($("flyQuickPaste") || {}).value || "";
-        if (!note.trim()) return drawerMsg("Write or speak a note first.", "error");
+        if (!note.trim()) return drawerMsg("Paste or type a note first.", "error");
         applyNoteToDraft(note);
         state.step = 0;
         paintStep("next");
@@ -2910,6 +2961,16 @@
       }
       case "pick-file": $("flyFileInput").click(); break;
       case "template": downloadTemplate(); break;
+      case "welcome-setup":
+        closeWelcome(true);
+        requestAnimationFrame(() => openConnect());
+        break;
+      case "welcome-later": closeWelcome(false); break;
+      case "nudge-log":
+        dismissNudge();
+        requestAnimationFrame(() => openLogDrawer());
+        break;
+      case "nudge-dismiss": dismissNudge(); break;
       default: break;
     }
   }
@@ -2929,12 +2990,165 @@
       '<button class="fly-btn fly-btn-primary fly-btn-sm" data-action="begin-batch">Review one by one</button></div>';
   }
 
-  // Mic button is re-created with each step paint, so delegate.
-  document.addEventListener("click", (e) => {
-    if (e.target.closest("#flyMicBtn")) {
-      recognition ? stopMic() : startMic();
+  /* ============================================================
+     WELCOME MODAL — first-time user onboarding (desktop only)
+     ============================================================ */
+  function shouldShowWelcome() {
+    if (window.innerWidth <= 760) return false;
+    try {
+      if (sessionStorage.getItem("flywheel_welcome_dismissed")) return false;
+    } catch {}
+    return true;
+  }
+
+  function markWelcomed() {
+    try { localStorage.setItem("flywheel_welcomed", Date.now()); } catch {}
+  }
+
+  function openWelcome() {
+    const name = state.me.firstName || state.me.name || "";
+    const greeting = name ? "Welcome, " + esc(name) : "Welcome to Flywheel";
+
+    const card = $("flyWelcomeCard");
+    card.innerHTML =
+      '<div class="fly-welcome-hero">' +
+        '<div class="fly-welcome-icon">' +
+          '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>' +
+          '</svg>' +
+        '</div>' +
+        '<h2 id="flyWelcomeTitle">' + greeting + '</h2>' +
+        '<p>Flywheel logs every experiment your team runs on voice agents — so nothing gets lost and everyone learns faster.</p>' +
+      '</div>' +
+      '<div class="fly-welcome-body">' +
+        '<div class="fly-welcome-steps">' +
+          '<div class="fly-welcome-step">' +
+            '<div class="fly-welcome-step-num">1</div>' +
+            '<div class="fly-welcome-step-text">' +
+              '<strong>Download your personal skill file</strong>' +
+              '<span>A small file that teaches Claude how to read and write to Flywheel. Your key is already inside it.</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="fly-welcome-step">' +
+            '<div class="fly-welcome-step-num">2</div>' +
+            '<div class="fly-welcome-step-text">' +
+              '<strong>Drop it into your skills folder</strong>' +
+              '<span>Move it to <code style="font-size:11px;background:var(--surface-sunken);padding:2px 5px;border-radius:4px">~/.claude/skills/</code> and you are done — nothing else to configure.</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="fly-welcome-step">' +
+            '<div class="fly-welcome-step-num">3</div>' +
+            '<div class="fly-welcome-step-text">' +
+              '<strong>Ask Claude to log experiments</strong>' +
+              '<span>Say "log this experiment" or "what have we tried on Khatabook" and Claude handles the rest.</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="fly-welcome-warn">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M12 9v4"/><path d="M12 17h.01"/>' +
+            '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>' +
+          '</svg>' +
+          '<span>Your skill file is a personal key — it logs experiments as <strong>' + esc(state.me.name || state.me.firstName || "you") +
+          '</strong>. Keep it private.</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="fly-welcome-foot">' +
+        '<button class="fly-btn fly-btn-primary" data-action="welcome-setup">Set up now</button>' +
+        '<button class="fly-btn fly-btn-ghost" data-action="welcome-later">I\'ll do this later</button>' +
+        '<div class="fly-welcome-foot-link">' +
+          '<a href="/api/skill" target="_blank" rel="noopener">View the full skill file</a>' +
+          ' · You can always set this up from your profile → Connect your AI' +
+        '</div>' +
+      '</div>';
+
+    openOverlay($("flyWelcome"), $("flyWelcomeScrim"));
+  }
+
+  function closeWelcome(completed) {
+    if (completed) {
+      markWelcomed();
+    } else {
+      try { sessionStorage.setItem("flywheel_welcome_dismissed", "1"); } catch {}
     }
-  });
+    closeOverlay($("flyWelcome"), $("flyWelcomeScrim"), 220);
+  }
+
+  /* ============================================================
+     NUDGE — remind inactive users to contribute
+     ============================================================ */
+  function shouldShowNudge() {
+    if (window.innerWidth <= 760) return false;
+    try {
+      const dismissed = localStorage.getItem("flywheel_nudge_dismissed");
+      if (dismissed) {
+        const elapsed = Date.now() - Number(dismissed);
+        if (elapsed < 3 * 24 * 60 * 60 * 1000) return false;
+      }
+    } catch {}
+
+    const myEmail = (state.me.email || "").toLowerCase();
+    const myName = (state.me.name || state.me.firstName || "").toLowerCase();
+    if (!myEmail && !myName) return false;
+
+    const myEntries = state.entries.filter((e) => {
+      if (myEmail && (e.ownerEmail || "").toLowerCase() === myEmail) return true;
+      if (myName && (e.owner || "").toLowerCase() === myName) return true;
+      return false;
+    });
+
+    if (!myEntries.length) return { days: null, first: true };
+
+    const latest = myEntries.reduce((best, e) => {
+      const d = e.date || e.createdAt || "";
+      return d > best ? d : best;
+    }, "");
+
+    if (!latest) return false;
+    const diffMs = Date.now() - new Date(latest).getTime();
+    const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (days >= 7) return { days: days, first: false };
+    return false;
+  }
+
+  function showNudge(info) {
+    const nudge = $("flyNudge");
+    if (!nudge) return;
+
+    let msg;
+    if (info.first) {
+      msg = "You haven't logged any experiments yet. " +
+        "Once you do, your team can learn from what you've tried.";
+    } else {
+      msg = "It's been <strong>" + info.days + " day" + (info.days === 1 ? "" : "s") +
+        "</strong> since your last experiment. Working on something new?";
+    }
+
+    nudge.innerHTML =
+      '<div class="fly-nudge-bar">' +
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>' +
+        '</svg>' +
+        '<div class="fly-nudge-bar-text">' + msg + '</div>' +
+        '<div class="fly-nudge-actions">' +
+          '<button class="fly-btn fly-btn-primary fly-btn-sm" data-action="nudge-log" style="white-space:nowrap">Log an experiment</button>' +
+          '<button class="fly-nudge-dismiss" data-action="nudge-dismiss" aria-label="Dismiss">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+
+    nudge.classList.remove("closing");
+    nudge.classList.add("open");
+  }
+
+  function dismissNudge() {
+    try { localStorage.setItem("flywheel_nudge_dismissed", Date.now()); } catch {}
+    const nudge = $("flyNudge");
+    if (!nudge) return;
+    nudge.classList.add("closing");
+    setTimeout(() => nudge.classList.remove("open", "closing"), 260);
+  }
 
   /* ============================================================
      INIT
@@ -2970,6 +3184,31 @@
 
     // Restore drafts indicator.
     paintDraftsBadge();
+
+    // First-time welcome (desktop only).
+    // Always checks tokens — shows welcome whenever user has no API key,
+    // regardless of whether they completed it before.
+    if (shouldShowWelcome()) {
+      fetch("/api/tokens", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : { tokens: [] }; })
+        .then(function (d) {
+          if (d.tokens && d.tokens.length) {
+            markWelcomed();
+            var nudgeInfo = shouldShowNudge();
+            if (nudgeInfo) requestAnimationFrame(function () { showNudge(nudgeInfo); });
+          } else {
+            requestAnimationFrame(function () { openWelcome(); });
+          }
+        })
+        .catch(function () {
+          var welcomed = null;
+          try { welcomed = localStorage.getItem("flywheel_welcomed"); } catch {}
+          if (!welcomed) requestAnimationFrame(function () { openWelcome(); });
+        });
+    } else {
+      var nudgeInfo = shouldShowNudge();
+      if (nudgeInfo) requestAnimationFrame(function () { showNudge(nudgeInfo); });
+    }
   }
 
   init();
