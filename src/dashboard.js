@@ -2344,8 +2344,8 @@
       'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M12 9v4"/><path d="M12 17h.01"/>' +
       '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>' +
-      "<span><strong>Claude Code only, for now.</strong> Chat and Cowork cannot reach Flywheel \u2014 " +
-      "it is not on the org's allowed network list yet. We will tell you when that changes.</span></div>";
+      "<span><strong>Claude Code only.</strong> Flywheel is not on the org's allowed network " +
+      "list, so the endpoint is blocked from Claude chat and Cowork.</span></div>";
 
     if (!data.enabled) {
       html += '<div class="fly-msg info show">Key storage is not set up yet. ' +
@@ -2357,7 +2357,7 @@
 
       html += '<div class="fly-note" style="margin-top:10px">Your key is inside the file, so anything ' +
         "you log is recorded as <strong>" + esc(state.me.name || state.me.firstName) +
-        "</strong>. Keep it private \u2014 do not share it or commit it to a repo.</div>";
+        "</strong>. Keep it to yourself.</div>";
 
       // Claude Code only discovers a skill as a folder containing SKILL.md — a bare
       // flywheel.md in ~/.claude/skills/ is silently never loaded. Handing the file
@@ -3214,6 +3214,9 @@
     const greeting = name ? "Welcome, " + esc(name) : "Welcome to Flywheel";
 
     const card = $("flyWelcomeCard");
+    // Deliberately thin: this hands over to the Connect drawer, which carries the
+    // real setup. Repeating the steps here is what made the two screens read as
+    // the same page twice.
     card.innerHTML =
       '<div class="fly-welcome-hero">' +
         '<div class="fly-welcome-icon">' +
@@ -3225,44 +3228,23 @@
         '<p>Flywheel logs every experiment your team runs on voice agents — so nothing gets lost and everyone learns faster.</p>' +
       '</div>' +
       '<div class="fly-welcome-body">' +
-        '<div class="fly-welcome-steps">' +
-          '<div class="fly-welcome-step">' +
-            '<div class="fly-welcome-step-num">1</div>' +
-            '<div class="fly-welcome-step-text">' +
-              '<strong>Download your personal skill file</strong>' +
-              '<span>A small file that teaches Claude how to read and write to Flywheel. Your key is already inside it.</span>' +
-            '</div>' +
-          '</div>' +
-          '<div class="fly-welcome-step">' +
-            '<div class="fly-welcome-step-num">2</div>' +
-            '<div class="fly-welcome-step-text">' +
-              '<strong>Drop it into your skills folder</strong>' +
-              '<span>One command puts it at <code style="font-size:11px;background:var(--surface-sunken);padding:2px 5px;border-radius:4px">~/.claude/skills/flywheel/SKILL.md</code> — you get it on the next screen.</span>' +
-            '</div>' +
-          '</div>' +
-          '<div class="fly-welcome-step">' +
-            '<div class="fly-welcome-step-num">3</div>' +
-            '<div class="fly-welcome-step-text">' +
-              '<strong>Ask Claude Code to log experiments</strong>' +
-              '<span>Say "log this experiment" or "what have we tried on Khatabook" and Claude handles the rest.</span>' +
-            '</div>' +
-          '</div>' +
+        '<div class="fly-note" style="text-align:center">' +
+          'Connect Claude Code once, then log experiments and search what we have tried just by asking.' +
         '</div>' +
         '<div class="fly-welcome-warn">' +
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
             '<path d="M12 9v4"/><path d="M12 17h.01"/>' +
             '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>' +
           '</svg>' +
-          '<span>Your skill file is a personal key — it logs experiments as <strong>' + esc(state.me.name || state.me.firstName || "you") +
-          '</strong>. Keep it private.</span>' +
+          '<span><strong>Claude Code only.</strong> Flywheel is not on the org\'s allowed network ' +
+          'list, so the endpoint is blocked from Claude chat and Cowork.</span>' +
         '</div>' +
       '</div>' +
       '<div class="fly-welcome-foot">' +
         '<button class="fly-btn fly-btn-primary" data-action="welcome-setup">Set up now</button>' +
         '<button class="fly-btn fly-btn-ghost" data-action="welcome-later">I\'ll do this later</button>' +
         '<div class="fly-welcome-foot-link">' +
-          '<a href="/api/skill" target="_blank" rel="noopener">View the full skill file</a>' +
-          ' · You can always set this up from your profile → Connect your AI' +
+          'No rush — it is always under your avatar menu → <strong>Connect your AI</strong>.' +
         '</div>' +
       '</div>';
 
