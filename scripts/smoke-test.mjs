@@ -449,17 +449,22 @@ async function main() {
     eq(nested.parentId, commentId, "should flatten onto the top-level comment");
   });
 
-  await check("a reply on another experiment's comment is refused", async () => {
-    const res = await api(`/api/experiments/${created.experiments[0]}/comments`, {
+  await check("a reply cannot be attached across experiments", async () => {
+    // Must be a different experiment — pointing this at the comment's own
+    // experiment is just an ordinary reply, which is what it was doing before.
+    const other = created.experiments.find((id) => id !== quantId);
+    ok(other, "no second experiment to test against");
+    const res = await api(`/api/experiments/${other}/comments`, {
       method: "POST", body: JSON.stringify({ body: "wrong thread", parentId: commentId }),
     });
-    ok([400, 200].includes(res.status), `unexpected status ${res.status}`);
-    if (res.status === 200) {
+    const { threading } = await json(await api(`/api/experiments/${quantId}/comments`));
+    if (!threading) {
       const stray = (await json(res)).comment;
-      created.comments.push({ experimentId: created.experiments[0], id: stray.id });
+      created.comments.push({ experimentId: other, id: stray.id });
       ok(!stray.parentId, "a cross-experiment parent should not have been accepted");
       return "threading not migrated — parent ignored";
     }
+    eq(res.status, 400, "status");
   });
 
   await check("deleting a comment takes its replies", async () => {
