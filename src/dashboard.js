@@ -53,6 +53,13 @@
     }[m]));
   }
 
+  /** A dark, copyable one-liner — a shell command, a URL to hand someone. */
+  function codeBlock(text, marginTop) {
+    return '<div class="fly-code-block wrap" style="margin-top:' + (marginTop || 7) + 'px"><code>' +
+      esc(text) + "</code>" +
+      '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="' + esc(text) + '">Copy</button></div>';
+  }
+
   function avatarColor(name) {
     if (!name) return AVATAR_COLORS[0];
     let h = 0;
@@ -2163,6 +2170,147 @@
   }
 
   /* ============================================================
+     MANAGE ACCESS — admin-only invite list
+     ============================================================ */
+
+  /**
+   * The sign-in gate is the `allowed_users` table: lib/auth.ts sends anyone
+   * who is not on it to /not-authorized. So adding someone here IS the invite —
+   * nothing is emailed, and the link has to be passed on by hand.
+   */
+  async function openAccess() {
+    openOverlay($("flyAccessDrawer"), $("flyAccessScrim"));
+    $("flyAccessBody").innerHTML =
+      '<div class="fly-loading" style="padding:40px"><span class="fly-spinner"></span>Loading…</div>';
+    await paintAccess();
+  }
+
+  async function paintAccess(message) {
+    let users = null;
+    try {
+      const res = await fetch("/api/admin/invite", { cache: "no-store" });
+      if (res.ok) users = await res.json();
+    } catch (e) { /* offline */ }
+
+    let html = "";
+
+    if (message) {
+      html += '<div class="fly-msg success show" style="margin-bottom:16px">' + esc(message) + "</div>";
+    }
+    if (!users) {
+      html += '<div class="fly-msg error show" style="margin-bottom:16px">' +
+        "Could not load the access list. Close this and try again.</div>";
+      users = [];
+    }
+
+    html += '<div class="fly-field-label" style="margin-bottom:9px">Invite someone</div>';
+    html += '<input class="fly-input" id="flyInviteEmail" type="email" autocomplete="off" ' +
+      'placeholder="name@squadstack.ai" style="margin-bottom:8px" />';
+    html += '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+      '<input class="fly-input" id="flyInviteName" type="text" autocomplete="off" ' +
+      'placeholder="Full name (optional)" style="flex:1;min-width:0" />' +
+      '<select class="fly-select" id="flyInviteRole" style="width:118px;flex:none">' +
+      '<option value="member">Member</option><option value="admin">Admin</option></select></div>';
+    html += '<button class="fly-btn fly-btn-primary" data-action="invite-user" ' +
+      'style="width:100%;padding:11px">Add to the list</button>';
+    html += '<div class="fly-hint" style="margin-bottom:20px">Admins can invite and remove people. ' +
+      "Members just log experiments.</div>";
+
+    html += '<div class="fly-field-label" style="margin-bottom:9px">Send them this link</div>';
+    html += codeBlock(location.origin, 0);
+    html += '<div class="fly-hint" style="margin-bottom:22px">Nothing is emailed automatically. ' +
+      "They open the link, choose <strong>Continue with Google</strong>, and pick their " +
+      "@squadstack.ai account.</div>";
+
+    html += '<div class="fly-field-label" style="margin-bottom:9px">Who has access · ' + users.length + "</div>";
+    if (!users.length) {
+      html += '<div class="fly-empty">Nobody yet.</div>';
+    } else {
+      html += '<div class="fly-token-list">';
+      for (const u of users) {
+        const email = String(u.email || "");
+        const isMe = email.toLowerCase() === String(state.me.email || "").toLowerCase();
+        html += '<div class="fly-token-row"><div style="min-width:0">' +
+          '<div class="fly-token-name">' + esc(u.name || email.split("@")[0]) +
+            (u.role === "admin" ? '<span class="fly-role-tag">admin</span>' : "") +
+            (isMe ? ' <span class="fly-token-meta" style="font-weight:500">· you</span>' : "") +
+          "</div>" +
+          '<div class="fly-token-meta">' + esc(email) +
+            (u.invited_by && !isMe ? " · invited by " + esc(String(u.invited_by).split("@")[0]) : "") +
+          "</div></div>" +
+          // The API refuses self-removal anyway; hiding the button just avoids
+          // offering an action that always fails.
+          (isMe ? "" : '<button class="fly-btn fly-btn-danger fly-btn-sm" data-remove-user="' +
+            esc(email) + '">Remove</button>') +
+          "</div>";
+      }
+      html += "</div>";
+      html += '<div class="fly-hint">Removing someone blocks their next sign-in and kills their ' +
+        "API keys straight away. Experiments they logged stay.</div>";
+    }
+
+    $("flyAccessBody").innerHTML = html;
+  }
+
+  async function inviteUser() {
+    const emailEl = $("flyInviteEmail");
+    const nameEl = $("flyInviteName");
+    const roleEl = $("flyInviteRole");
+    if (!emailEl) return;
+
+    const email = (emailEl.value || "").trim().toLowerCase();
+    const name = (nameEl.value || "").trim();
+    const role = roleEl.value === "admin" ? "admin" : "member";
+
+    emailEl.classList.remove("invalid");
+    const reject = (msg) => {
+      emailEl.classList.add("invalid");
+      emailEl.focus();
+      toast(msg, "error");
+    };
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reject("Enter a valid email address.");
+    // Google sign-in is pinned to the workspace domain, so any other address
+    // would sit on the list and never be able to log in.
+    if (!email.endsWith("@squadstack.ai")) return reject("Only @squadstack.ai accounts can sign in.");
+
+    const btn = document.querySelector('[data-action="invite-user"]');
+    if (btn) { btn.disabled = true; btn.textContent = "Adding…"; }
+
+    try {
+      const res = await fetch("/api/admin/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name, role }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(body.error || "Could not add them.", "error");
+        if (btn) { btn.disabled = false; btn.textContent = "Add to the list"; }
+        return;
+      }
+      await paintAccess(email + " can now sign in.");
+    } catch (e) {
+      toast("Could not add them.", "error");
+      if (btn) { btn.disabled = false; btn.textContent = "Add to the list"; }
+    }
+  }
+
+  async function removeUser(email) {
+    try {
+      const res = await fetch("/api/admin/invite", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(body.error || "Could not remove them.", "error"); return; }
+      await paintAccess(email + " no longer has access.");
+    } catch (e) {
+      toast("Could not remove them.", "error");
+    }
+  }
+
+  /* ============================================================
      CONNECT YOUR AI — personal tokens + skill install
      ============================================================ */
   async function openConnect() {
@@ -2206,10 +2354,6 @@
       // has to create the folder and rename the file in one go.
       const installCmd =
         "mkdir -p ~/.claude/skills/flywheel && mv ~/Downloads/flywheel.md ~/.claude/skills/flywheel/SKILL.md";
-
-      const codeBlock = (cmd) =>
-        '<div class="fly-code-block wrap" style="margin-top:7px"><code>' + esc(cmd) + "</code>" +
-        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-copy="' + esc(cmd) + '">Copy</button></div>';
 
       const step = (n, title, body) =>
         '<div class="fly-welcome-step"><div class="fly-welcome-step-num">' + n + "</div>" +
@@ -2390,6 +2534,12 @@
     $("flyMenuIdentity").innerHTML =
       '<div class="fly-popover-name">' + esc(state.me.name || label) + "</div>" +
       '<div class="fly-popover-email">' + esc(state.me.email || "") + "</div>";
+
+    // Members never see the access controls. This is presentation only — the
+    // real gate is requireAdmin() in /api/admin/invite, which a member cannot
+    // get past by unhiding a button.
+    const accessItem = $("flyMenuAccess");
+    if (accessItem) accessItem.style.display = state.me.role === "admin" ? "" : "none";
   }
 
   function paintRefreshed() {
@@ -2453,6 +2603,7 @@
       const kind = item.dataset.menu;
       if (kind === "drafts") openDraftsPanel();
       else if (kind === "connect") openConnect();
+      else if (kind === "access") openAccess();
       else if (kind === "export") exportCurrentView();
       else if (kind === "template") downloadTemplate();
       else if (kind === "refresh") refreshData(false);
@@ -2622,6 +2773,23 @@
         state.method = picked;
         clearDrawerMsg();
         paintStep("next");
+        return;
+      }
+
+      const removeUserBtn = t.closest("[data-remove-user]");
+      if (removeUserBtn) {
+        e.stopPropagation();
+        if (removeUserBtn.dataset.armed === "1") {
+          removeUser(removeUserBtn.dataset.removeUser);
+        } else {
+          removeUserBtn.dataset.armed = "1";
+          removeUserBtn.textContent = "Sure?";
+          setTimeout(() => {
+            if (!removeUserBtn.isConnected) return;
+            removeUserBtn.dataset.armed = "";
+            removeUserBtn.textContent = "Remove";
+          }, 3000);
+        }
         return;
       }
 
@@ -2899,6 +3067,10 @@
       case "close-connect":
         closeOverlay($("flyConnectDrawer"), $("flyConnectScrim"), 220);
         break;
+      case "close-access":
+        closeOverlay($("flyAccessDrawer"), $("flyAccessScrim"), 220);
+        break;
+      case "invite-user": await inviteUser(); break;
       case "download-skill": await downloadSkill(); break;
       case "close-sheet": closeDetail(); break;
       case "cancel-delete": {

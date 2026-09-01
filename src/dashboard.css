@@ -1224,6 +1224,19 @@ th.fly-col-actions { z-index: 4; }
   background: var(--surface);
 }
 .fly-token-name { font-size: 13px; font-weight: 600; }
+.fly-role-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--primary-08);
+  color: var(--primary);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: 1px;
+}
 .fly-token-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .fly-token-meta code { font-size: 11px; }
 

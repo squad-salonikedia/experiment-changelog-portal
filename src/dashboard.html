@@ -26,6 +26,7 @@
             <div class="fly-popover-head" id="flyMenuIdentity"></div>
             <button class="fly-popover-item" data-menu="drafts">My drafts <span id="flyDraftsBadge" class="fly-badge" style="display:none">0</span></button>
             <button class="fly-popover-item" data-menu="connect">Connect your AI</button>
+            <button class="fly-popover-item" data-menu="access" id="flyMenuAccess" style="display:none">Manage access</button>
             <button class="fly-popover-item" data-menu="refresh">Refresh data</button>
             <button class="fly-popover-item" data-menu="export">Export as CSV</button>
             <button class="fly-popover-item" data-menu="template">Download import template</button>
@@ -105,6 +106,25 @@
       <div></div>
       <div class="fly-drawer-foot-right">
         <button class="fly-btn fly-btn-ghost" data-action="close-connect">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Manage access (admins only) -->
+<div class="fly-scrim" id="flyAccessScrim"></div>
+<div class="fly-drawer" id="flyAccessDrawer" role="dialog" aria-modal="true" aria-labelledby="flyAccessTitle">
+  <div class="fly-drawer-panel">
+    <div class="fly-drawer-grip"></div>
+    <div class="fly-drawer-head">
+      <h2 id="flyAccessTitle">Manage access</h2>
+      <p class="fly-drawer-sub">Only people on this list can sign in, and only with a @squadstack.ai Google account.</p>
+    </div>
+    <div class="fly-drawer-body" id="flyAccessBody"></div>
+    <div class="fly-drawer-foot">
+      <div></div>
+      <div class="fly-drawer-foot-right">
+        <button class="fly-btn fly-btn-ghost" data-action="close-access">Done</button>
       </div>
     </div>
   </div>
