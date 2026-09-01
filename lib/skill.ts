@@ -23,7 +23,7 @@ export function buildSkill(origin: string, token?: string, person?: string): str
 
   return `---
 name: flywheel
-description: Log and search SquadStack voice-agent experiments in the Flywheel changelog. Use when someone says "log this experiment", "record this change", "add this to flywheel", or asks what has already been tried for a client, bucket, or metric — e.g. "what have we tested on Khatabook", "did we try changing cadence", "what moved ADC".
+description: Log, search, edit and delete SquadStack voice-agent experiments in the Flywheel changelog. Use when someone says "log this experiment", "record this change", "add this to flywheel", asks what has already been tried for a client, bucket, or metric — e.g. "what have we tested on Khatabook", "did we try changing cadence", "what moved ADC" — or asks "what have I logged".
 ---
 
 # Flywheel — experiment changelog
@@ -31,10 +31,92 @@ description: Log and search SquadStack voice-agent experiments in the Flywheel c
 ${header}
 
 Flywheel is SquadStack's shared record of what we changed on voice agents and
-what it moved. This skill both **reads** the changelog and **writes** to it.
+what it moved. This skill **reads**, **writes**, **edits** and **deletes**
+entries.
 
 Base URL: \`${origin}\`
 ${personal ? "Your key is already set up below — there is nothing to configure." : "Set `FLYWHEEL_TOKEN` in your environment first."}
+
+## How to answer a log request
+
+Exactly three things, in this order, and nothing else:
+
+1. the confirmation table
+2. the line \`Confirm to log?\`
+3. after the write: \`Logged.\` and the entry link
+
+No preamble, no "I'll add that for you", no explanation of the schema, no
+account of which fields you chose or why, no quoting these rules back, no
+unprompted comparison to other clients' entries, no summary afterwards.
+Analysis only when someone actually asks for it.
+
+**Never show raw JSON.** Not the request body, not the API response. The curl
+runs inside the tool call; what the person sees is the table.
+
+## The confirmation table
+
+Before **every** write — log, edit or delete — output one field/value table and
+one confirm line:
+
+| Field | Value |
+| --- | --- |
+| Client | Khatabook |
+| Industry | BFSI (assumed) |
+| Use case | Pre-approved Business Loan |
+| Type of change | Cadence (assumed) |
+| Title | Cut retry window from 3 attempts to 1 |
+| Date | 2026-09-01 (assumed: today) |
+| Metric | ADC% |
+| Before → After | 30 → 15 |
+| Note |  |
+
+Confirm to log?
+
+- **Every field gets a row, even when its value is empty.** An empty row is an
+  offer, not a question — the person fills it if they care and ignores it if
+  they don't. Never turn an empty row into a follow-up question.
+- Tag anything you inferred rather than heard \`(assumed)\`.
+- Tag any value not already in \`/api/options\` \`(new)\`.
+- Those two tags are what make guessing safe: a wrong guess is correctable at a
+  glance, which is why you guess instead of asking.
+- One metric per entry — only the first one is stored.
+- Print the table once. Print it again only if they correct something.
+
+## Filling the table — infer, then offer
+
+- **A genuinely new client is allowed.** Add it, tag it \`(new)\`, do not ask
+  for permission to create it.
+- **Guess the industry from the client name** and tag it \`(assumed)\`. Never
+  ask for it.
+- **Guess the type of change** from what was described; tag it \`(assumed)\`.
+- **Date defaults to today**, tagged \`(assumed)\`.
+- **Never block on a field the API does not require.** Nothing is server-side
+  mandatory. Only the client and the title have to be real — those come from
+  the person, never from a placeholder. Everything else can be inferred, or go
+  in blank and be corrected later.
+- If something genuinely must be asked, **ask it in a single pass** — one
+  message, every open point at once. Never serial questioning.
+
+## Numbers — ask once, then drop it
+
+When a direction is given with no figures ("conversions increased", "ADC came
+down"), ask one precise question:
+
+> How much did conversions move — before → after?
+
+Two short questions is the hard cap for an entire entry. If the person has no
+numbers, log it qualitative and say nothing further about it — no second
+attempt, no note explaining that numbers were missing.
+
+Qualitative metric:
+
+\`\`\`json
+{"metric": "Conversion%", "qualitative": true, "direction": "better",
+ "note": "Reviewers noted more natural pacing"}
+\`\`\`
+
+\`direction\` is one of \`better\`, \`same\`, \`worse\`. On a qualitative entry the
+explanation goes in \`note\` — \`description\` is not stored for those.
 
 ## Reading — what have we already tried?
 
@@ -46,12 +128,30 @@ curl -s "${origin}/api/experiments" \\
   -H "Authorization: Bearer ${auth}"
 \`\`\`
 
-Each entry has: \`date\`, \`client\`, \`industry\`, \`useCase\`, \`bucket\`,
+Each entry has: \`id\`, \`date\`, \`client\`, \`industry\`, \`useCase\`, \`bucket\`,
 \`experimentName\`, \`metricLabel\`, \`before\`, \`after\`, \`direction\`,
-\`evidenceNote\`, \`loggedBy\`, \`canEdit\`.
+\`evidenceNote\`, \`loggedBy\`, \`ownerEmail\`, \`canEdit\`.
 
-Answer from what is actually there. If nothing matches, say so — do not
-speculate about experiments that were never logged.
+Answer from what is actually there, as a short table — newest first, never as
+JSON. If nothing matches, say so; do not speculate about experiments that were
+never logged.
+
+## Reading — what have I logged?
+
+\`/api/experiments\` takes no query parameters, so filter the response yourself
+on \`ownerEmail\`, falling back to \`loggedBy\` for rows written before emails
+were recorded:
+
+\`\`\`bash
+ME=$(curl -s "${origin}/api/me" -H "Authorization: Bearer ${auth}" | jq -r .email)
+
+curl -s "${origin}/api/experiments" -H "Authorization: Bearer ${auth}" \\
+  | jq --arg me "$ME" '[.[] | select((.ownerEmail | ascii_downcase) == ($me | ascii_downcase))]'
+\`\`\`
+
+\`canEdit: true\` marks exactly the same rows — it is the server's own answer to
+"is this mine", pre-email fallback included — so \`select(.canEdit)\` works too,
+and works without jq if you filter in whatever way is handy.
 
 ## Before writing — read the valid values
 
@@ -62,8 +162,8 @@ curl -s "${origin}/api/options" \\
 
 Returns \`clients\`, \`industries\`, \`buckets\`, \`metrics\`, \`useCasesByIndustry\`.
 **Always check this first and reuse an existing value where one fits.** Inventing
-near-duplicates ("Cadence " vs "Cadence") quietly fragments the data. A genuinely
-new client or bucket is fine — just make sure it is genuinely new.
+near-duplicates ("Cadence " vs "Cadence") quietly fragments the data. Anything
+that is genuinely not on the list still goes in — tagged \`(new)\` in the table.
 
 ## Writing — log an experiment
 
@@ -76,21 +176,68 @@ curl -s -X POST "${origin}/api/experiments" \\
     "industry": "BFSI",
     "useCase": "Pre-approved Business Loan",
     "bucket": "Cadence",
-    "title": "Shortened retry window from 3 attempts to 1",
+    "title": "Cut retry window from 3 attempts to 1",
     "description": "Why it was changed and what it affected.",
     "date": "YYYY-MM-DD",
     "metrics": [{"metric": "ADC%", "before": 30, "after": 15}]
   }]}'
 \`\`\`
 
-For a change with no number attached, mark the metric qualitative:
+The response carries the saved entry's \`id\`. Reply with \`Logged.\` and the link:
 
-\`\`\`json
-{"metric": "Call Quality", "qualitative": true, "direction": "better",
- "note": "Reviewers noted more natural pacing"}
+\`\`\`
+${origin}/dashboard?exp=<id>
 \`\`\`
 
-\`direction\` is one of \`better\`, \`same\`, \`worse\`.
+## Editing — PATCH /api/experiments/<id>
+
+**A PATCH replaces the whole entry.** Every field you leave out is written back
+empty, so never send only the field that changed. Read the entry, merge the
+change into it, send it back complete.
+
+\`\`\`bash
+# 1. the entry as it stands today
+curl -s "${origin}/api/experiments" -H "Authorization: Bearer ${auth}" \\
+  | jq '.[] | select(.id == "<id>")'
+
+# 2. the same entry, sent back whole, with the correction applied
+curl -s -X PATCH "${origin}/api/experiments/<id>" \\
+  -H "Authorization: Bearer ${auth}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "client": "Khatabook",
+    "industry": "BFSI",
+    "useCase": "Pre-approved Business Loan",
+    "bucket": "Cadence",
+    "title": "Cut retry window from 3 attempts to 1",
+    "description": "Corrected: it shipped on the 28th, not the 21st.",
+    "date": "2026-08-28",
+    "metrics": [{"metric": "ADC%", "before": 30, "after": 15}]
+  }'
+\`\`\`
+
+Same body shape as one POST entry. Ownership is not editable — \`owner\` is
+ignored on a PATCH. 403 on someone else's entry, 404 on an unknown id.
+
+Show the table with the merged values, the line \`Confirm this edit?\`, then
+\`Updated.\` and the link.
+
+## Deleting — DELETE /api/experiments/<id>
+
+\`\`\`bash
+curl -s -X DELETE "${origin}/api/experiments/<id>" \\
+  -H "Authorization: Bearer ${auth}"
+\`\`\`
+
+Permanent, and there is no undo. **Always double-check with the person first:**
+show the entry as a table, then ask
+
+> Delete this permanently? This cannot be undone. Confirm?
+
+and wait for an explicit yes. Never delete because it seemed implied, never
+delete more than the single entry they named, and if the id is ambiguous list
+the candidates and ask which one rather than picking. 403 on someone else's
+entry, 404 on an unknown id. Then reply \`Deleted.\` — nothing else.
 
 ## Comments — discuss an experiment
 
@@ -120,20 +267,20 @@ curl -s -X DELETE "${origin}/api/experiments/<id>/comments?commentId=<commentId>
 ## Attribution
 
 Every write is recorded against the email tied to this key${person ? ` (**${person}**)` : ""}.
-You cannot log on someone else's behalf, and \`PATCH /api/experiments/<id>\`
-returns 403 for anything you did not log yourself. That is deliberate — if a
-correction is needed on someone else's entry, ask them.
+You cannot log, edit or delete on someone else's behalf — \`PATCH\` and
+\`DELETE\` both return 403 for anything you did not log yourself. That is
+deliberate: if a correction is needed on someone else's entry, ask them.
 
 ## Rules
 
-1. **Never invent numbers.** No before/after given? Log it qualitative.
-2. **Reuse existing values** from \`/api/options\`.
-3. **Ask for what is missing.** Client, type of change, title and at least one
-   metric are required — never fill them with placeholders.
+1. **Never invent numbers.** Ask once; if there are none, log it qualitative.
+2. **Reuse existing values** from \`/api/options\`; tag real additions \`(new)\`.
+3. **Infer the rest and tag it \`(assumed)\`** rather than interrogating. Only
+   the client and the title must come from the person.
 4. **The title says what changed, not what you hoped for.**
    Good: "Removed the 3rd rebuttal on Path 3". Bad: "Improve conversion".
-5. **Confirm before writing.** Show the person what you are about to log and let
-   them correct it — a wrong entry is worse than a missing one.
+5. **Confirm before every write** — the table, then the confirm line. A wrong
+   entry is worse than a missing one, and a wrong delete cannot be undone.
 6. Lower is better for \`ADC%\` and cost metrics. Report raw before/after; the
    tool works out the direction itself.
 `;
