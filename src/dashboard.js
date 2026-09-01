@@ -30,7 +30,6 @@
     editingId: null,
     step: 0,
     method: "manual",
-    batch: null,
     saving: false,
     // In-progress "add a new …" text, keyed by form field.
     adding: {},
@@ -195,7 +194,6 @@
     }
     state.step = 0;
     state.method = "manual";
-    state.batch = null;
     state.adding = {};
     state.unlock = {};
     $("flyDrawerTitle").textContent = "Resume draft";
@@ -244,7 +242,6 @@
     lock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
     close: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     expand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>',
-    paste: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
     pencilLarge: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
     sheet: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>',
   };
@@ -966,6 +963,29 @@
   /* ============================================================
      DETAIL SHEET
      ============================================================ */
+  /**
+   * This runs inside an iframe on /dashboard, so window.location is
+   * /api/dashboard. A link built from it opens the bare frame instead of the
+   * app, which is why shared experiment links looked broken.
+   */
+  function appUrl(expId) {
+    return window.location.origin + "/dashboard" +
+      (expId ? "?exp=" + encodeURIComponent(expId) : "");
+  }
+
+  /** Keeps the browser's address bar — the parent page — in step with the sheet. */
+  function syncTopUrl(expId) {
+    try {
+      if (window.parent === window) return;
+      const url = new URL(window.parent.location.href);
+      if (expId) url.searchParams.set("exp", expId);
+      else url.searchParams.delete("exp");
+      window.parent.history.replaceState(null, "", url);
+    } catch {
+      // Cross-origin parent: the in-frame URL below is still correct.
+    }
+  }
+
   function openDetail(id) {
     const e = state.entries.find((x) => x.id === id);
     if (!e) return;
@@ -973,6 +993,7 @@
     const url = new URL(window.location);
     url.searchParams.set("exp", id);
     history.replaceState(null, "", url);
+    syncTopUrl(id);
 
     // --- Metrics ---
     let metricsHtml = "";
@@ -1066,26 +1087,6 @@
         '</div>';
     }
 
-    // --- Separator ---
-    html += '<div class="fly-detail-divider"></div>';
-
-    // --- Comments ---
-    html += '<div class="fly-detail-comments">' +
-      '<div class="fly-detail-comments-head">' +
-        '<span class="fly-field-label" style="margin:0">Comments</span>' +
-      '</div>' +
-      '<div id="flyCommentsList" data-experiment-id="' + esc(e.id) + '">' +
-        '<div class="fly-comment-loading">Loading…</div>' +
-      '</div>' +
-      '<div class="fly-comment-compose">' +
-        '<div class="fly-comment-input-row">' +
-          myAvatar("sm") +
-          '<textarea id="flyCommentInput" class="fly-comment-input" placeholder="Leave a comment…" rows="1"></textarea>' +
-          '<button class="fly-btn fly-btn-primary fly-btn-sm" id="flyCommentSend" disabled>Post</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
     // --- Related experiments ---
     const related = state.entries
       .filter((x) => x.id !== e.id && x.client && x.client === e.client)
@@ -1103,6 +1104,26 @@
       }
       html += "</div>";
     }
+    // --- Comments — deliberately last. Anything rendered below the composer
+    // reads as part of the thread, which is how a related-experiment card ended
+    // up looking like someone's comment. ---
+    html += '<div class="fly-detail-divider"></div>';
+    html += '<div class="fly-detail-comments">' +
+      '<div class="fly-detail-comments-head">' +
+        '<span class="fly-field-label" style="margin:0">Comments</span>' +
+      '</div>' +
+      '<div id="flyCommentsList" data-experiment-id="' + esc(e.id) + '">' +
+        '<div class="fly-comment-loading">Loading…</div>' +
+      '</div>' +
+      '<div class="fly-comment-compose">' +
+        '<div class="fly-comment-input-row">' +
+          myAvatar("sm") +
+          '<textarea id="flyCommentInput" class="fly-comment-input" placeholder="Leave a comment…" rows="1"></textarea>' +
+          '<button class="fly-btn fly-btn-primary fly-btn-sm" id="flyCommentSend" disabled>Post</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
     html += "</div>";
 
     // --- Footer ---
@@ -1204,7 +1225,11 @@
         input.value = "";
         input.style.height = "auto";
         btn.textContent = "Post";
-        loadComments(experimentId);
+        await loadComments(experimentId);
+        const posted = ($("flyCommentsList") || {}).lastElementChild;
+        if (posted && posted.scrollIntoView) {
+          posted.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
       } catch {
         toast("Could not post comment.", "error");
         btn.disabled = false;
@@ -1232,6 +1257,7 @@
       url.searchParams.delete("exp");
       history.replaceState(null, "", url);
     }
+    syncTopUrl(null);
   }
 
   /* ============================================================
@@ -1290,7 +1316,6 @@
     state.draft = emptyDraft();
     state.step = -1; // method picker
     state.method = "manual";
-    state.batch = null;
     state.adding = {};
     state.unlock = {};
     $("flyDrawerTitle").textContent = "Log an experiment";
@@ -1323,7 +1348,6 @@
     if (!state.draft.metrics.length) state.draft.metrics = emptyDraft().metrics;
     state.step = 0;
     state.method = "manual";
-    state.batch = null;
     state.adding = {};
     state.unlock = {};
     $("flyDrawerTitle").textContent = "Edit experiment";
@@ -1340,7 +1364,6 @@
   function closeDrawer() {
     if (closeOverlay($("flyDrawer"), $("flyDrawerScrim"), 220)) {
       state.editingId = null;
-      state.batch = null;
       state.saving = false;
     }
   }
@@ -1393,21 +1416,8 @@
       html += '<div class="fly-step-hint">How would you like to add this?</div>';
       html += '<div class="fly-method-grid">' +
         methodCard("manual", ICONS.pencilLarge, "Fill it in", "Step through the fields. Takes about a minute.") +
-        methodCard("note", ICONS.paste, "Paste a note", "Drop in a note and we'll pre-fill what we can.") +
         methodCard("upload", ICONS.sheet, "Upload a file", "Excel or CSV. Good for logging many at once.") +
         "</div>";
-      if (state.method === "note") {
-        html += '<div style="margin-top:16px"><div class="fly-paste-box">' +
-          '<label class="fly-label" style="color:var(--primary)">Your note — one experiment or several</label>' +
-          '<textarea class="fly-textarea" id="flyQuickPaste" placeholder="e.g. Added a how-are-you opener on Khatabook, ADC went from 30 to 15. Also on Flipkart we changed cadence timing, connect rate 40 to 48."></textarea>' +
-          '<div class="fly-hint">Keyword matching, not AI — always check the fields before saving.</div>' +
-          '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
-            '<button class="fly-btn fly-btn-soft fly-btn-sm" data-action="autofill">Pre-fill from this note</button>' +
-            '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="split">Split into several</button>' +
-          "</div>" +
-          '<div id="flyBatchReview" style="margin-top:10px"></div>' +
-        "</div></div>";
-      }
       if (state.method === "upload") {
         html += '<div style="margin-top:16px"><div class="fly-dropzone" id="flyDropzone">' +
           '<div style="font-size:13px;font-weight:600;margin-bottom:4px">Drop an Excel or CSV file here</div>' +
@@ -1682,9 +1692,8 @@
           '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' +
           ' Save draft</button>'
       : "";
-    left.innerHTML = (state.batch
-      ? '<span class="fly-hint">Experiment ' + (state.batch.index + 1) + " of " + state.batch.queue.length + "</span>"
-      : '<span class="fly-hint">Step ' + (state.step + 1) + " of " + STEPS.length + "</span>") + draftBtn;
+    left.innerHTML = '<span class="fly-hint">Step ' + (state.step + 1) + " of " +
+      STEPS.length + "</span>" + draftBtn;
 
     const isLast = state.step === STEPS.length - 1;
     // At step 0 there is nowhere back to except the method picker (new entries)
@@ -1872,15 +1881,8 @@
 
     const editing = state.editingId;
     const draftId = d._draftId;
-    const isBatch = state.batch && state.batch.index < state.batch.queue.length - 1;
 
-    if (isBatch) {
-      state.batch.index++;
-      loadBatchStep(state.batch.index);
-    } else {
-      state.batch = null;
-      closeDrawer();
-    }
+    closeDrawer();
     toast(editing ? "Saving changes…" : "Saving experiment…", "info");
 
     try {
@@ -1902,12 +1904,6 @@
 
       upsertEntries(editing ? [body.entry] : body.entries || []);
       state.saving = false;
-
-      if (isBatch) {
-        repaintAll();
-        toast("Saved. Next one…", "success");
-        return;
-      }
 
       if (draftId) {
         deleteDraft(draftId);
@@ -1967,85 +1963,6 @@
     } catch {
       toast("Network problem — could not delete.", "error");
     }
-  }
-
-  /* ============================================================
-     NOTE PARSING + BATCH
-     ============================================================ */
-  function detectFromNote(note) {
-    const lower = note.toLowerCase();
-    const found = {};
-    for (const c of state.options.clients) if (lower.includes(c.toLowerCase())) found.client = c;
-    for (const b of state.options.buckets) {
-      if (lower.includes(b.toLowerCase().split("/")[0].trim())) found.bucket = b;
-    }
-    if (!found.bucket) {
-      const map = [
-        ["rebuttal", "Rebuttal Sequencing"], ["hangup", "Hangup Timing"],
-        ["cadence", "Cadence"], ["timing", "Cadence"],
-        ["opener", "App Opener"], ["greeting", "App Opener"],
-        ["kyc", "KYC Flow"], ["app journey", "App Journey"],
-        ["voice", "STT/TTS Fix"], ["tts", "STT/TTS Fix"], ["stt", "STT/TTS Fix"],
-        ["pronunciation", "STT/TTS Fix"], ["disposition", "Disposition Logic"],
-        ["callback", "Callback Strategy"], ["telephony", "Call Flow"],
-        ["call flow", "Call Flow"], ["pitch", "Pitch"], ["script", "Pitch"],
-        ["prompt", "Prompt"],
-      ];
-      for (const [needle, bucket] of map) {
-        if (lower.includes(needle) && state.options.buckets.includes(bucket)) { found.bucket = bucket; break; }
-      }
-    }
-    let metric = "";
-    if (lower.includes("adc")) metric = "ADC%";
-    else if (lower.includes("conversion")) metric = "Conversion%";
-    else if (lower.includes("connect")) metric = "Connect Rate%";
-    else if (lower.includes("callback")) metric = "Callback Success%";
-    else if (lower.includes("nps")) metric = "NPS";
-    else if (/\boa\b/.test(lower)) metric = "OA%";
-    if (metric && !state.options.metrics.includes(metric)) metric = "";
-
-    const nums = note.match(/(\d+(?:\.\d+)?)\s*%?\s*(?:to|->|→|from)\s*(\d+(?:\.\d+)?)/i);
-    found.metricRow = { metric, before: nums ? nums[1] : "", after: nums ? nums[2] : "" };
-    found.description = note.trim();
-    return found;
-  }
-
-  function applyNoteToDraft(note) {
-    const found = detectFromNote(note);
-    state.draft = emptyDraft();
-    if (found.client) state.draft.client = found.client;
-    if (found.bucket) state.draft.bucket = found.bucket;
-    state.draft.description = found.description;
-    state.draft.title = note.trim().slice(0, 70) + (note.trim().length > 70 ? "…" : "");
-    if (found.metricRow.metric || found.metricRow.before) {
-      state.draft.metrics[0] = {
-        metric: found.metricRow.metric, qualitative: false,
-        before: found.metricRow.before, after: found.metricRow.after,
-        direction: "better", note: "",
-      };
-    }
-    applyClientDefaults();
-  }
-
-  function splitIntoSegments(text) {
-    let t = text.trim();
-    if (!t) return [];
-    t = t.replace(/\b(?:and then also|and then|then also|also i|also,? i|next experiment|next,? i|after that,? i|after that)\b/gi, "|||");
-    let parts = t.split("|||").map((s) => s.trim()).filter(Boolean);
-    if (parts.length === 1) {
-      parts = t.split(/(?<=[.!?])\s+(?=[A-Z])/).map((s) => s.trim()).filter((s) => s.length > 25);
-      if (parts.length < 2) parts = [t];
-    }
-    return parts;
-  }
-
-  function loadBatchStep(i) {
-    applyNoteToDraft(state.batch.queue[i]);
-    state.step = 0;
-    state.editingId = null;
-    $("flyDrawerTitle").textContent = "Log an experiment";
-    $("flyDrawerSub").textContent = "Pre-filled from your note — check every field.";
-    paintStep("next");
   }
 
   /* ============================================================
@@ -2744,7 +2661,7 @@
       if (copyLink) {
         e.stopPropagation();
         const expId = copyLink.dataset.copyLink;
-        const url = window.location.origin + window.location.pathname + "?exp=" + encodeURIComponent(expId);
+        const url = appUrl(expId);
         navigator.clipboard.writeText(url).then(
           () => toast("Link copied to clipboard.", "success"),
           () => toast("Could not copy link.", "error")
@@ -2877,14 +2794,6 @@
         syncMetrics();
         state.draft.metrics[Number(mtype.dataset.i)].qualitative = mtype.dataset.mtype === "qual";
         paintMetrics();
-        return;
-      }
-
-      const removeSeg = t.closest("[data-remove-seg]");
-      if (removeSeg) {
-        const segs = [...document.querySelectorAll("[data-batch-seg]")].map((el) => el.value);
-        segs.splice(Number(removeSeg.dataset.removeSeg), 1);
-        renderBatchReview(segs);
         return;
       }
 
@@ -3106,7 +3015,7 @@
         break;
       }
       case "do-delete": {
-        const delId = actionEl.dataset.id;
+        const delId = el && el.dataset.id;
         if (delId) deleteExperiment(delId);
         break;
       }
@@ -3119,10 +3028,6 @@
         break;
       case "start":
         state.step = 0;
-        if (state.method === "note") {
-          const note = ($("flyQuickPaste") || {}).value || "";
-          if (note.trim()) applyNoteToDraft(note);
-        }
         paintStep("next");
         break;
       case "save": saveDraft(); break;
@@ -3160,35 +3065,6 @@
         state.draft.metrics.push({ metric: "", qualitative: false, before: "", after: "", direction: "better", note: "" });
         paintMetrics();
         break;
-      case "autofill": {
-        const note = ($("flyQuickPaste") || {}).value || "";
-        if (!note.trim()) return drawerMsg("Paste or type a note first.", "error");
-        applyNoteToDraft(note);
-        state.step = 0;
-        paintStep("next");
-        toast("Pre-filled — check every field.", "success");
-        break;
-      }
-      case "split": {
-        const note = ($("flyQuickPaste") || {}).value || "";
-        const segments = splitIntoSegments(note);
-        if (segments.length < 2) return drawerMsg("Could not find more than one experiment in that note.", "error");
-        renderBatchReview(segments);
-        break;
-      }
-      case "begin-batch": {
-        const segs = [...document.querySelectorAll("[data-batch-seg]")].map((s) => s.value.trim()).filter(Boolean);
-        if (!segs.length) return drawerMsg("Nothing left to log.", "error");
-        state.batch = { queue: segs, index: 0 };
-        loadBatchStep(0);
-        break;
-      }
-      case "add-seg": {
-        const segs = [...document.querySelectorAll("[data-batch-seg]")].map((s) => s.value);
-        segs.push("");
-        renderBatchReview(segs);
-        break;
-      }
       case "pick-file": $("flyFileInput").click(); break;
       case "template": downloadTemplate(); break;
       case "welcome-setup":
@@ -3203,21 +3079,6 @@
       case "nudge-dismiss": dismissNudge(); break;
       default: break;
     }
-  }
-
-  function renderBatchReview(segments) {
-    const host = $("flyBatchReview");
-    if (!host) return;
-    host.innerHTML =
-      '<div class="fly-msg info show">Found ' + segments.length +
-      " possible experiments. Edit or remove any before you start.</div>" +
-      segments.map((seg, i) =>
-        '<div class="fly-batch-seg"><textarea class="fly-textarea" data-batch-seg="1" placeholder="Experiment ' +
-        (i + 1) + '">' + esc(seg) + "</textarea>" +
-        '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-remove-seg="' + i + '">Remove</button></div>').join("") +
-      '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">' +
-      '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="add-seg">+ Add another</button>' +
-      '<button class="fly-btn fly-btn-primary fly-btn-sm" data-action="begin-batch">Review one by one</button></div>';
   }
 
   /* ============================================================
