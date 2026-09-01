@@ -114,6 +114,52 @@ Once deployed, send everyone:
 
 ---
 
+## A separate database for development
+
+By default `.env.local` points at the same Supabase project as the live site, so
+running `npm run dev` and clicking around edits **the team's real changelog**.
+Entries and comments appear and vanish for everyone else with no explanation.
+Before more people start using Flywheel, give development its own database.
+
+1. In Supabase, create a second project — call it something like
+   `flywheel-dev`. The free tier is fine.
+2. In the new project: **SQL Editor → New query**, then run, in order,
+   `supabase/schema.sql` and every file in `supabase/migrations/` (oldest
+   first). Each one is safe to re-run.
+3. Point your local `.env.local` at the new project — `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` from **Project settings → API** — and add:
+
+   ```
+   DEV_DATABASE=true
+   ```
+
+   Set this **only** in your local file. Never add it in Vercel: it is the flag
+   that tells the seed and reset scripts they are allowed to delete everything.
+
+4. Fill it with something to look at:
+
+   ```bash
+   node scripts/seed-dev.mjs
+   ```
+
+   That leaves five experiments across four clients, a comment thread and a few
+   reactions — enough for the dashboard to look like a real changelog when you
+   are demoing or testing.
+
+To start over at any point:
+
+```bash
+node scripts/seed-dev.mjs --reset   # clear it out, then put the examples back
+node scripts/seed-dev.mjs --wipe    # clear it out and leave it empty
+```
+
+Both refuse to run unless `DEV_DATABASE=true`, so they cannot touch production
+by accident. The dev server also prints a warning at startup if the database it
+is talking to is not marked as a development one.
+
+Vercel keeps using the production project, because `DEV_DATABASE` is not set
+there and its `SUPABASE_URL` is unchanged.
+
 ## Troubleshooting
 
 | Problem | Fix |

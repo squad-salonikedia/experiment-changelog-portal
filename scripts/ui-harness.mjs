@@ -35,6 +35,7 @@ ${read("src/dashboard.html")}
 <script>
 ${read("scripts/harness/fake-api.js")}
 </script>
+<script>${read("src/import-rows.js")}</script>
 <script>${read("src/dashboard.js")}</script>
 </body>
 </html>`;

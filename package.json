@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node scripts/test-import.mjs && node scripts/smoke-test.mjs",
+    "test:import": "node scripts/test-import.mjs",
+    "test:api": "node scripts/smoke-test.mjs",
+    "harness": "node scripts/ui-harness.mjs",
+    "seed": "node scripts/seed-dev.mjs"
   },
   "dependencies": {
     "next": "^14.2.5",

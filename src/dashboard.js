@@ -14,6 +14,11 @@
       features: { prompt: false, ownerEmail: false },
     },
     me: { name: "", email: "", firstName: "", role: "member" },
+    // Comment thread state: who a reply is aimed at, which comment is being
+    // edited, and whether the server has the columns for either (migration 007).
+    commentReplyTo: null,
+    commentEditing: null,
+    commentThreading: false,
     // null until /api/tokens answers. false is what lights the setup dots.
     hasKey: null,
     filters: { client: "", industry: "", useCase: "", bucket: "", owner: "", metricType: "" },
@@ -779,8 +784,8 @@
       }).join("") || '<span class="fly-empty">—</span>';
 
       const r = e.reactions || { up: [], down: [] };
-      const meUp = r.up.includes(state.me.firstName);
-      const meDown = r.down.includes(state.me.firstName);
+      const meUp = r.up.includes(state.me.email);
+      const meDown = r.down.includes(state.me.email);
 
       html += '<tr data-row="' + esc(e.id) + '">';
       html += '<td class="fly-nowrap"><div class="fly-date-main">' + esc(formatDate(e.date) || "—") + "</div></td>";
@@ -889,8 +894,8 @@
         "</div>";
 
       const r = e.reactions || { up: [], down: [] };
-      const meUp = r.up.includes(state.me.firstName);
-      const meDown = r.down.includes(state.me.firstName);
+      const meUp = r.up.includes(state.me.email);
+      const meDown = r.down.includes(state.me.email);
 
       html += '<div class="fly-card-foot">' +
         '<span class="fly-owner-badge">' + avatar(e.owner) + esc(e.owner || "—") + "</span>" +
@@ -1116,6 +1121,7 @@
         '<div class="fly-comment-loading">Loading…</div>' +
       '</div>' +
       '<div class="fly-comment-compose">' +
+        '<div id="flyReplyTarget"></div>' +
         '<div class="fly-comment-input-row">' +
           myAvatar("sm") +
           '<textarea id="flyCommentInput" class="fly-comment-input" placeholder="Leave a comment…" rows="1"></textarea>' +
@@ -1145,6 +1151,9 @@
     }
     html += "</div>";
 
+    state.commentReplyTo = null;
+    state.commentEditing = null;
+
     const sheet = $("flySheet");
     sheet.innerHTML = html;
     openOverlay(sheet, $("flySheetScrim"));
@@ -1152,16 +1161,39 @@
     setupCommentInput(e.id);
   }
 
-  function renderComment(c) {
-    return '<div class="fly-comment" data-comment-id="' + esc(c.id) + '">' +
+  function renderComment(c, replies) {
+    const editing = state.commentEditing === c.id;
+    let html = '<div class="fly-comment' + (c.parentId ? " fly-comment-reply" : "") +
+      '" data-comment-id="' + esc(c.id) + '">' +
       '<div class="fly-comment-head">' +
         avatar(c.author, "sm") +
         '<div class="fly-comment-author">' + esc(c.author) + '</div>' +
-        '<div class="fly-comment-time">' + timeAgo(c.createdAt) + '</div>' +
-        (c.canDelete ? '<button class="fly-comment-delete" data-action="delete-comment" data-comment-id="' + esc(c.id) + '" title="Delete">' + ICONS.close + '</button>' : '') +
-      '</div>' +
-      '<div class="fly-comment-body">' + esc(c.body) + '</div>' +
-    '</div>';
+        '<div class="fly-comment-time">' + timeAgo(c.createdAt) +
+          (c.editedAt ? " · edited" : "") + '</div>' +
+        (state.commentThreading && !c.parentId && !editing
+          ? '<button class="fly-comment-act" data-action="reply-to" data-comment-id="' + esc(c.id) + '">Reply</button>'
+          : '') +
+        (c.canEdit && !editing
+          ? '<button class="fly-comment-act" data-action="edit-comment" data-comment-id="' + esc(c.id) + '">Edit</button>'
+          : '') +
+        (c.canDelete && !editing
+          ? '<button class="fly-comment-delete" data-action="delete-comment" data-comment-id="' + esc(c.id) + '" title="Delete">' + ICONS.close + '</button>'
+          : '') +
+      '</div>';
+
+    if (editing) {
+      html += '<div class="fly-comment-body">' +
+        '<textarea class="fly-comment-input" data-comment-edit="' + esc(c.id) + '" rows="2">' + esc(c.body) + '</textarea>' +
+        '<div class="fly-comment-edit-actions">' +
+          '<button class="fly-btn fly-btn-ghost fly-btn-sm" data-action="cancel-comment-edit">Cancel</button>' +
+          '<button class="fly-btn fly-btn-primary fly-btn-sm" data-action="save-comment-edit" data-comment-id="' + esc(c.id) + '">Save</button>' +
+        '</div></div>';
+    } else {
+      html += '<div class="fly-comment-body">' + esc(c.body) + '</div>';
+    }
+
+    html += (replies || []).map((r) => renderComment(r, [])).join("");
+    return html + '</div>';
   }
 
   function timeAgo(dateStr) {
@@ -1189,13 +1221,62 @@
         list.innerHTML = '<div class="fly-comment-empty">Comments will be available after the migration is run.</div>';
         return;
       }
+      state.commentThreading = !!data.threading;
       if (!data.comments.length) {
         list.innerHTML = '<div class="fly-comment-empty">No comments yet. Be the first to ask a question or share feedback.</div>';
+        paintCommentComposer();
         return;
       }
-      list.innerHTML = data.comments.map(renderComment).join("");
+      // One level deep: replies hang off their parent, in the order they arrived.
+      const repliesFor = new Map();
+      for (const c of data.comments) {
+        if (!c.parentId) continue;
+        if (!repliesFor.has(c.parentId)) repliesFor.set(c.parentId, []);
+        repliesFor.get(c.parentId).push(c);
+      }
+      list.innerHTML = data.comments
+        .filter((c) => !c.parentId)
+        .map((c) => renderComment(c, repliesFor.get(c.id) || []))
+        .join("");
+      paintCommentComposer();
     } catch {
       list.innerHTML = '<div class="fly-comment-empty">Could not load comments.</div>';
+    }
+  }
+
+  /** Shows who a reply is aimed at, and gives a way out of it. */
+  function paintCommentComposer() {
+    const host = $("flyReplyTarget");
+    if (!host) return;
+    const target = state.commentReplyTo;
+    host.innerHTML = target
+      ? '<span class="fly-reply-chip">Replying to ' + esc(target.author) +
+        '<button data-action="cancel-reply" aria-label="Cancel reply">' + ICONS.close + "</button></span>"
+      : "";
+    const input = $("flyCommentInput");
+    if (input) {
+      input.placeholder = target ? "Write a reply…" : "Leave a comment…";
+    }
+  }
+
+  async function saveCommentEdit(experimentId, commentId) {
+    const field = document.querySelector('[data-comment-edit="' + commentId + '"]');
+    const body = field ? field.value.trim() : "";
+    if (!body) { toast("A comment cannot be empty.", "error"); return; }
+    try {
+      const res = await fetch(
+        "/api/experiments/" + experimentId + "/comments?commentId=" + encodeURIComponent(commentId),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        }
+      );
+      if (!res.ok) throw new Error();
+      state.commentEditing = null;
+      loadComments(experimentId);
+    } catch {
+      toast("Could not save that edit.", "error");
     }
   }
 
@@ -1216,15 +1297,17 @@
       btn.disabled = true;
       btn.textContent = "Posting…";
       try {
+        const parentId = state.commentReplyTo ? state.commentReplyTo.id : null;
         const res = await fetch("/api/experiments/" + experimentId + "/comments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ body }),
+          body: JSON.stringify(parentId ? { body, parentId } : { body }),
         });
         if (!res.ok) throw new Error();
         input.value = "";
         input.style.height = "auto";
         btn.textContent = "Post";
+        state.commentReplyTo = null;
         await loadComments(experimentId);
         const posted = ($("flyCommentsList") || {}).lastElementChild;
         if (posted && posted.scrollIntoView) {
@@ -1266,21 +1349,23 @@
   async function toggleReaction(id, type) {
     const entry = state.entries.find((e) => e.id === id);
     if (!entry) return;
-    const name = state.me.firstName;
-    if (!name) { toast("Could not identify you — try signing in again.", "error"); return; }
+    // The server records the reaction against the signed-in email and ignores
+    // anything the browser claims, so this is only for the optimistic paint.
+    const me = state.me.email;
+    if (!me) { toast("Could not identify you — try signing in again.", "error"); return; }
 
     // Optimistic, then reconciled with the server response.
     const r = entry.reactions || (entry.reactions = { up: [], down: [] });
     const other = type === "up" ? "down" : "up";
-    r[other] = r[other].filter((n) => n !== name);
-    r[type] = r[type].includes(name) ? r[type].filter((n) => n !== name) : r[type].concat(name);
+    r[other] = r[other].filter((n) => n !== me);
+    r[type] = r[type].includes(me) ? r[type].filter((n) => n !== me) : r[type].concat(me);
     paintTable(false);
 
     try {
       const res = await fetch("/api/experiments/" + encodeURIComponent(id) + "/reactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userIdentity: name, reaction: type }),
+        body: JSON.stringify({ reaction: type }),
       });
       if (res.ok) {
         entry.reactions = await res.json();
@@ -1968,42 +2053,12 @@
   /* ============================================================
      FILE UPLOAD
      ============================================================ */
+  /** Spreadsheet parsing lives in src/import-rows.js so it can be unit tested. */
   function importRows(rows) {
-    const grouped = new Map();
-    for (const raw of rows) {
-      const get = (...keys) => {
-        for (const k of keys) {
-          const hit = Object.keys(raw).find((rk) => rk.toLowerCase().replace(/[^a-z]/g, "") === k);
-          if (hit && String(raw[hit]).trim() !== "") return String(raw[hit]).trim();
-        }
-        return "";
-      };
-      const title = get("title", "experiment", "experimentname");
-      const client = get("client");
-      const date = get("date", "datelogged");
-      if (!title && !client) continue;
-      const key = date + "|" + title + "|" + client;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          date: (date || todayISO()).slice(0, 10),
-          client, industry: get("industry"), useCase: get("usecase"),
-          bucket: get("bucket"), title, description: get("description", "notes", "evidencenote"),
-          prompt: get("prompt"), owner: get("owner", "loggedby") || state.me.firstName,
-          metrics: [],
-        });
-      }
-      const metric = get("metric", "metriclabel");
-      if (metric) {
-        const before = get("before", "beforevalue");
-        const after = get("after", "aftervalue");
-        grouped.get(key).metrics.push(
-          before === "" && after === ""
-            ? { metric, qualitative: true, direction: (get("direction") || "better").toLowerCase(), note: get("description", "notes") }
-            : { metric, qualitative: false, before, after }
-        );
-      }
-    }
-    return [...grouped.values()].filter((e) => e.metrics.length);
+    return FlywheelImport.importRows(rows, {
+      today: todayISO(),
+      owner: state.me.firstName,
+    });
   }
 
   async function handleFile(file) {
@@ -3058,6 +3113,41 @@
         if (commentEl && expEl) {
           deleteComment(expEl.dataset.experimentId, commentEl.dataset.commentId);
         }
+        break;
+      }
+      case "reply-to": {
+        const id = el && el.dataset.commentId;
+        const author = el && el.closest(".fly-comment");
+        const name = author ? (author.querySelector(".fly-comment-author") || {}).textContent : "";
+        if (!id) break;
+        state.commentReplyTo = { id, author: name || "this comment" };
+        paintCommentComposer();
+        const input = $("flyCommentInput");
+        if (input) input.focus();
+        break;
+      }
+      case "cancel-reply":
+        state.commentReplyTo = null;
+        paintCommentComposer();
+        break;
+      case "edit-comment": {
+        const id = el && el.dataset.commentId;
+        const expEl = $("flyCommentsList");
+        if (!id || !expEl) break;
+        state.commentEditing = id;
+        loadComments(expEl.dataset.experimentId);
+        break;
+      }
+      case "cancel-comment-edit": {
+        const expEl = $("flyCommentsList");
+        state.commentEditing = null;
+        if (expEl) loadComments(expEl.dataset.experimentId);
+        break;
+      }
+      case "save-comment-edit": {
+        const id = el && el.dataset.commentId;
+        const expEl = $("flyCommentsList");
+        if (id && expEl) saveCommentEdit(expEl.dataset.experimentId, id);
         break;
       }
       case "add-metric":

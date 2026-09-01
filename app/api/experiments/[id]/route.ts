@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { canEdit, getViewer } from "@/lib/identity";
 import { supabase } from "@/lib/supabase";
 import {
-  payloadToRecord,
+  payloadToPatch,
   rowToEntry,
   withOptionalColumns,
   type ExperimentPayload,
@@ -63,13 +63,22 @@ export async function PATCH(
 
   try {
     const body = (await request.json()) as ExperimentPayload;
-    const record = payloadToRecord(body);
 
-    // Ownership is not transferable through an edit — a contributor reassigning
-    // a row to themselves is exactly the bug this endpoint has to prevent.
-    const { logged_by: _ignored, ...editable } = record;
-    // Ownership never changes on edit, so owner_email is deliberately absent.
-    const patch = await withOptionalColumns(editable, { prompt: body.prompt ?? "" });
+    // Only what the caller sent. payloadToPatch leaves ownership out entirely —
+    // an edit must never reassign a row to whoever is editing it.
+    const edits = payloadToPatch(body);
+    const patch = await withOptionalColumns(edits, {
+      // Omitting the prompt should leave it alone, not erase it.
+      prompt: body.prompt,
+      // Ownership never changes on edit, so owner_email is deliberately absent.
+    });
+
+    if (!Object.keys(patch).length) {
+      return NextResponse.json(
+        { error: "Nothing to update — send at least one field." },
+        { status: 400 }
+      );
+    }
 
     const { data, error } = await supabase
       .from("experiments")

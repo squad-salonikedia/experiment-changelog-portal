@@ -16,6 +16,7 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import { createClient } from "@supabase/supabase-js";
+import { encode } from "next-auth/jwt";
 
 const BASE = (process.argv[2] || process.env.BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 
@@ -70,15 +71,49 @@ const api = (path, init = {}) =>
     ...init,
     headers: {
       ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(init.noAuth ? {} : { Authorization: `Bearer ${init.token ?? TOKEN}` }),
+      ...(init.noAuth || init.cookie
+        ? {}
+        : { Authorization: `Bearer ${init.token ?? TOKEN}` }),
+      ...(init.cookie ? { Cookie: init.cookie } : {}),
       ...init.headers,
     },
   });
 
+/**
+ * Some routes only accept a browser session — minting keys, the access list.
+ * A token deliberately cannot reach them, so to test them at all the suite
+ * signs a session cookie with the app's own NEXTAUTH_SECRET. No password and no
+ * browser involved; this is the same JWT Auth.js would have issued after login.
+ */
+let cookieName = null;
+async function sessionCookie(email, name) {
+  const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+  if (!secret) throw new Error("NEXTAUTH_SECRET is not set — cannot mint a test session");
+  const candidates = cookieName
+    ? [cookieName]
+    : BASE.startsWith("https://")
+      ? ["__Secure-authjs.session-token", "authjs.session-token"]
+      : ["authjs.session-token", "__Secure-authjs.session-token"];
+  for (const candidate of candidates) {
+    const jwt = await encode({
+      token: { email, name, sub: email },
+      secret,
+      salt: candidate,
+      maxAge: 300,
+    });
+    const cookie = `${candidate}=${jwt}`;
+    if ((await api("/api/me", { cookie })).status === 200) {
+      cookieName = candidate;
+      return cookie;
+    }
+  }
+  throw new Error("could not mint a working session cookie — check NEXTAUTH_SECRET");
+}
+
 const json = async (res) => { try { return await res.json(); } catch { return null; } };
 
 // ---------------------------------------------------------------- run
-const created = { experiments: [], comments: [] };
+const created = { experiments: [], comments: [], people: [] };
 
 async function main() {
   console.log(`\nFlywheel smoke test → \x1b[36m${BASE}\x1b[0m`);
@@ -240,25 +275,36 @@ async function main() {
     eq(entry.client, "ZZ Smoke Test Co", "client survived the edit");
   });
 
-  await check("PATCH is whole-entry — omitted fields are cleared, not kept", async () => {
+  await check("PATCH leaves out what it was not sent", async () => {
     const res = await api(`/api/experiments/${quantId}`, {
       method: "PATCH",
       body: JSON.stringify({ title: quantTitle + " (partial)" }),
     });
     eq(res.status, 200, "status");
     const entry = (await json(res)).entry;
-    eq(entry.client, "", "client after a partial patch");
-    // put it back so the rest of the run has a sane row
+    eq(entry.experimentName, quantTitle + " (partial)", "title");
+    eq(entry.client, "ZZ Smoke Test Co", "client survived a partial patch");
+    eq(entry.bucket, "Cadence", "bucket survived a partial patch");
+    eq(entry.metricLabel, "ADC%", "metric survived a partial patch");
+    eq(String(entry.after), "12", "after survived a partial patch");
+  });
+
+  await check("an empty string still clears a field", async () => {
+    const res = await api(`/api/experiments/${quantId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ useCase: "" }),
+    });
+    eq(res.status, 200, "status");
+    eq((await json(res)).entry.useCase, "", "useCase");
     await api(`/api/experiments/${quantId}`, {
       method: "PATCH",
-      body: JSON.stringify({
-        client: "ZZ Smoke Test Co", industry: "BFSI", useCase: "Smoke Test Use Case",
-        bucket: "Cadence", title: quantTitle, description: "Restored by the smoke test.",
-        date: new Date().toISOString().slice(0, 10),
-        metrics: [{ metric: "ADC%", before: 30, after: 15 }],
-      }),
+      body: JSON.stringify({ useCase: "Smoke Test Use Case", title: quantTitle }),
     });
-    return "documented, not a regression — send the whole entry";
+  });
+
+  await check("a PATCH with no fields is rejected", async () => {
+    const res = await api(`/api/experiments/${quantId}`, { method: "PATCH", body: JSON.stringify({}) });
+    eq(res.status, 400, "status");
   });
 
   await check("PATCH will not touch an entry someone else logged", async () => {
@@ -280,6 +326,45 @@ async function main() {
   await check("PATCH on an unknown id is a 404", async () => {
     const res = await api(`/api/experiments/${randomUUID()}`, { method: "PATCH", body: JSON.stringify({ title: "x" }) });
     eq(res.status, 404, "status");
+  });
+
+  // ------------------------------------------------------------ reactions
+  section("Reactions");
+  await check("POST records a reaction against the caller, not a name they sent", async () => {
+    const res = await api(`/api/experiments/${quantId}/reactions`, {
+      method: "POST",
+      // deliberately lying about who we are — the server must ignore it
+      body: JSON.stringify({ reaction: "up", userIdentity: "somebody.else@squadstack.ai" }),
+    });
+    eq(res.status, 200, "status");
+    const r = await json(res);
+    eq(r.up, [viewerEmail], "up");
+    eq(r.down, [], "down");
+  });
+  await check("reacting again takes the reaction back", async () => {
+    const r = await json(await api(`/api/experiments/${quantId}/reactions`, {
+      method: "POST", body: JSON.stringify({ reaction: "up" }),
+    }));
+    eq(r.up, [], "up");
+  });
+  await check("up replaces down rather than stacking", async () => {
+    await api(`/api/experiments/${quantId}/reactions`, { method: "POST", body: JSON.stringify({ reaction: "down" }) });
+    const r = await json(await api(`/api/experiments/${quantId}/reactions`, {
+      method: "POST", body: JSON.stringify({ reaction: "up" }),
+    }));
+    eq(r.up, [viewerEmail], "up");
+    eq(r.down, [], "down");
+  });
+  await check("a nonsense reaction is rejected", async () => {
+    const res = await api(`/api/experiments/${quantId}/reactions`, {
+      method: "POST", body: JSON.stringify({ reaction: "sideways" }),
+    });
+    eq(res.status, 400, "status");
+  });
+  await check("reactions come back on the experiment itself", async () => {
+    const list = await json(await api("/api/experiments"));
+    const entry = list.find((e) => e.id === quantId);
+    eq(entry.reactions.up, [viewerEmail], "reactions.up");
   });
 
   // ------------------------------------------------------------ comments
@@ -314,6 +399,85 @@ async function main() {
     const res = await api(`/api/experiments/${quantId}/comments`, { method: "POST", body: JSON.stringify({ body: "x".repeat(2001) }) });
     eq(res.status, 400, "status");
   });
+  await check("a comment can be edited, and says so", async () => {
+    const res = await api(`/api/experiments/${quantId}/comments?commentId=${commentId}`, {
+      method: "PATCH", body: JSON.stringify({ body: "Smoke test comment — reworded." }),
+    });
+    if (res.status === 405) return "PATCH not deployed here yet";
+    eq(res.status, 200, "status");
+    const c = (await json(res)).comment;
+    eq(c.body, "Smoke test comment — reworded.", "body");
+    // edited_at and parent_id both arrive with migration 007. Before it is run
+    // the edit still works, it just cannot be marked — which is the designed
+    // fallback, not a failure.
+    const { threading } = await json(await api(`/api/experiments/${quantId}/comments`));
+    if (!threading) return "edited, but migration 007 not run so it is unmarked";
+    ok(c.editedAt, "editedAt should be set");
+  });
+
+  await check("an empty edit is rejected", async () => {
+    const res = await api(`/api/experiments/${quantId}/comments?commentId=${commentId}`, {
+      method: "PATCH", body: JSON.stringify({ body: "  " }),
+    });
+    eq(res.status, 400, "status");
+  });
+
+  await check("a reply attaches to its parent", async () => {
+    const res = await api(`/api/experiments/${quantId}/comments`, {
+      method: "POST", body: JSON.stringify({ body: "A reply to that.", parentId: commentId }),
+    });
+    eq(res.status, 200, "status");
+    const reply = (await json(res)).comment;
+    created.comments.push({ experimentId: quantId, id: reply.id });
+    const { comments, threading } = await json(await api(`/api/experiments/${quantId}/comments`));
+    if (!threading) return "threading columns not migrated yet — stayed flat, as designed";
+    eq(reply.parentId, commentId, "parentId");
+    ok(comments.some((c) => c.id === reply.id && c.parentId === commentId), "the reply lost its parent");
+    return "one level deep";
+  });
+
+  await check("a reply to a reply joins the same thread", async () => {
+    const { comments, threading } = await json(await api(`/api/experiments/${quantId}/comments`));
+    if (!threading) return "threading columns not migrated yet";
+    const reply = comments.find((c) => c.parentId === commentId);
+    const res = await api(`/api/experiments/${quantId}/comments`, {
+      method: "POST", body: JSON.stringify({ body: "And a reply to the reply.", parentId: reply.id }),
+    });
+    eq(res.status, 200, "status");
+    const nested = (await json(res)).comment;
+    created.comments.push({ experimentId: quantId, id: nested.id });
+    eq(nested.parentId, commentId, "should flatten onto the top-level comment");
+  });
+
+  await check("a reply on another experiment's comment is refused", async () => {
+    const res = await api(`/api/experiments/${created.experiments[0]}/comments`, {
+      method: "POST", body: JSON.stringify({ body: "wrong thread", parentId: commentId }),
+    });
+    ok([400, 200].includes(res.status), `unexpected status ${res.status}`);
+    if (res.status === 200) {
+      const stray = (await json(res)).comment;
+      created.comments.push({ experimentId: created.experiments[0], id: stray.id });
+      ok(!stray.parentId, "a cross-experiment parent should not have been accepted");
+      return "threading not migrated — parent ignored";
+    }
+  });
+
+  await check("deleting a comment takes its replies", async () => {
+    const { threading } = await json(await api(`/api/experiments/${quantId}/comments`));
+    if (!threading) return "threading columns not migrated yet";
+    const res = await api(`/api/experiments/${quantId}/comments?commentId=${commentId}`, { method: "DELETE" });
+    eq(res.status, 200, "status");
+    const { comments } = await json(await api(`/api/experiments/${quantId}/comments`));
+    eq(comments.filter((c) => c.parentId === commentId).length, 0, "replies left behind");
+    created.comments = [];
+    // put a comment back so the delete-cascade check below still has one
+    const fresh = await json(await api(`/api/experiments/${quantId}/comments`, {
+      method: "POST", body: JSON.stringify({ body: "Replacement comment." }),
+    }));
+    commentId = fresh.comment.id;
+    created.comments.push({ experimentId: quantId, id: commentId });
+  });
+
   await check("DELETE removes your own comment", async () => {
     const res = await api(`/api/experiments/${quantId}/comments?commentId=${commentId}`, { method: "DELETE" });
     eq(res.status, 200, "status");
@@ -324,6 +488,86 @@ async function main() {
   await check("DELETE of an unknown comment is a 404", async () => {
     const res = await api(`/api/experiments/${quantId}/comments?commentId=${randomUUID()}`, { method: "DELETE" });
     eq(res.status, 404, "status");
+  });
+
+  // ------------------------------------------------------------ session-only
+  section("Keys and access (browser session only)");
+  const adminCookie = await sessionCookie(viewerEmail, "Smoke Test Admin");
+
+  await check("GET /api/tokens works with a session", async () => {
+    const res = await api("/api/tokens", { cookie: adminCookie });
+    eq(res.status, 200, "status");
+    const body = await json(res);
+    ok(body.enabled === true && Array.isArray(body.tokens), "unexpected shape");
+    return `${body.tokens.length} active`;
+  });
+
+  await check("a token cannot mint another token", async () => {
+    const res = await api("/api/tokens", { method: "POST", body: JSON.stringify({ name: "should not exist" }) });
+    eq(res.status, 401, "status");
+  });
+
+  await check("a key can be created, used, then revoked", async () => {
+    const made = await api("/api/tokens", {
+      method: "POST", cookie: adminCookie, body: JSON.stringify({ name: "smoke test (round trip)" }),
+    });
+    eq(made.status, 200, "create status");
+    const { token, prefix } = await json(made);
+    ok(token && prefix, "no token came back");
+    eq((await api("/api/me", { token })).status, 200, "the new key should work");
+
+    // POST returns the plaintext but not the row id, so find it by prefix.
+    const { tokens } = await json(await api("/api/tokens", { cookie: adminCookie }));
+    const row = tokens.find((t) => t.prefix === prefix);
+    ok(row, "the new key is not listed");
+
+    const revoked = await api(`/api/tokens?id=${encodeURIComponent(row.id)}`, { method: "DELETE", cookie: adminCookie });
+    eq(revoked.status, 200, "revoke status");
+    eq((await api("/api/me", { token })).status, 401, "a revoked key must stop working");
+  });
+
+  await check("the access list is admin-only", async () => {
+    const res = await api("/api/admin/invite", { cookie: adminCookie });
+    eq(res.status, 200, "status for an admin");
+    const people = await json(res);
+    ok(Array.isArray(people), "expected a list of people");
+
+    const member = people.find((p) => p.role !== "admin");
+    if (member) {
+      const theirs = await sessionCookie(member.email, member.name ?? "");
+      eq((await api("/api/admin/invite", { cookie: theirs })).status, 403, "status for a member");
+    }
+    return `${people.length} people${member ? ", member refused" : " (no member to test with)"}`;
+  });
+
+  await check("inviting and removing a person", async () => {
+    const email = `smoke-test-delete-me@squadstack.ai`;
+    await supabase.from("allowed_users").delete().eq("email", email);
+    const invited = await api("/api/admin/invite", {
+      method: "POST", cookie: adminCookie,
+      body: JSON.stringify({ email, name: "Smoke Test", role: "member" }),
+    });
+    eq(invited.status, 200, "invite status");
+    created.people.push(email);
+
+    const listed = await json(await api("/api/admin/invite", { cookie: adminCookie }));
+    ok(listed.some((p) => p.email === email), "the invited person is not in the list");
+
+    const removed = await api("/api/admin/invite", {
+      method: "DELETE", cookie: adminCookie, body: JSON.stringify({ email }),
+    });
+    eq(removed.status, 200, "remove status");
+    created.people = created.people.filter((e) => e !== email);
+
+    const after = await json(await api("/api/admin/invite", { cookie: adminCookie }));
+    ok(!after.some((p) => p.email === email), "the person is still there after removal");
+  });
+
+  await check("an admin cannot remove themselves", async () => {
+    const res = await api("/api/admin/invite", {
+      method: "DELETE", cookie: adminCookie, body: JSON.stringify({ email: viewerEmail }),
+    });
+    eq(res.status, 400, "status");
   });
 
   // ------------------------------------------------------------ deleting
@@ -376,6 +620,10 @@ async function cleanup() {
     const res = await api(`/api/experiments/${id}`, { method: "DELETE" }).catch(() => null);
     if (!res || !res.ok) await supabase.from("experiments").delete().eq("id", id);
   }
+  for (const email of created.people) {
+    await supabase.from("allowed_users").delete().eq("email", email);
+  }
+  await supabase.from("api_tokens").delete().eq("name", "smoke test (round trip)");
   if (tokenRow) await supabase.from("api_tokens").delete().eq("id", tokenRow);
 }
 

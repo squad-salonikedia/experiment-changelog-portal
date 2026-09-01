@@ -191,35 +191,30 @@ ${origin}/dashboard?exp=<id>
 
 ## Editing — PATCH /api/experiments/<id>
 
-**A PATCH replaces the whole entry.** Every field you leave out is written back
-empty, so never send only the field that changed. Read the entry, merge the
-change into it, send it back complete.
+Send only what changes. Anything you leave out keeps its current value; sending
+a field as \`""\` clears it.
 
 \`\`\`bash
-# 1. the entry as it stands today
-curl -s "${origin}/api/experiments" -H "Authorization: Bearer ${auth}" \\
-  | jq '.[] | select(.id == "<id>")'
-
-# 2. the same entry, sent back whole, with the correction applied
 curl -s -X PATCH "${origin}/api/experiments/<id>" \\
   -H "Authorization: Bearer ${auth}" \\
   -H "Content-Type: application/json" \\
-  -d '{
-    "client": "Khatabook",
-    "industry": "BFSI",
-    "useCase": "Pre-approved Business Loan",
-    "bucket": "Cadence",
-    "title": "Cut retry window from 3 attempts to 1",
-    "description": "Corrected: it shipped on the 28th, not the 21st.",
-    "date": "2026-08-28",
-    "metrics": [{"metric": "ADC%", "before": 30, "after": 15}]
-  }'
+  -d '{"date": "2026-08-28", "description": "Corrected: it shipped on the 28th."}'
 \`\`\`
 
-Same body shape as one POST entry. Ownership is not editable — \`owner\` is
-ignored on a PATCH. 403 on someone else's entry, 404 on an unknown id.
+Field names are the same as one POST entry. \`metrics\` is replaced as a unit —
+send the whole metric, not half of one:
 
-Show the table with the merged values, the line \`Confirm this edit?\`, then
+\`\`\`bash
+curl -s -X PATCH "${origin}/api/experiments/<id>" \\
+  -H "Authorization: Bearer ${auth}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"metrics": [{"metric": "ADC%", "before": 30, "after": 12}]}'
+\`\`\`
+
+Ownership is not editable — \`owner\` is ignored on a PATCH. 403 on someone
+else's entry, 404 on an unknown id, 400 if the body has no fields at all.
+
+Show the table with the new values, the line \`Confirm this edit?\`, then
 \`Updated.\` and the link.
 
 ## Deleting — DELETE /api/experiments/<id>
@@ -257,12 +252,42 @@ curl -s -X POST "${origin}/api/experiments/<id>/comments" \\
   -d '{"body": "Your comment text here"}'
 \`\`\`
 
-Delete your own comment:
+Reply to a comment — pass its id as \`parentId\`. Threads are one level deep; a
+reply to a reply joins the same thread:
 
 \`\`\`bash
+curl -s -X POST "${origin}/api/experiments/<id>/comments" \\
+  -H "Authorization: Bearer ${auth}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"body": "Answering that", "parentId": "<commentId>"}'
+\`\`\`
+
+Edit or delete your own comment (yours only — 403 otherwise):
+
+\`\`\`bash
+curl -s -X PATCH "${origin}/api/experiments/<id>/comments?commentId=<commentId>" \\
+  -H "Authorization: Bearer ${auth}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"body": "Reworded"}'
+
 curl -s -X DELETE "${origin}/api/experiments/<id>/comments?commentId=<commentId>" \\
   -H "Authorization: Bearer ${auth}"
 \`\`\`
+
+Deleting a comment takes its replies with it.
+
+## Reactions — 👍 / 👎
+
+\`\`\`bash
+curl -s -X POST "${origin}/api/experiments/<id>/reactions" \\
+  -H "Authorization: Bearer ${auth}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"reaction": "up"}'
+\`\`\`
+
+\`reaction\` is \`up\` or \`down\`. Sending the same one again takes it back, and
+\`up\` replaces a previous \`down\`. It is recorded against this key's owner —
+you cannot react as anyone else. Only do this when asked to.
 
 ## Attribution
 

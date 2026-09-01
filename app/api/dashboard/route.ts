@@ -26,6 +26,7 @@ export async function GET() {
 </head>
 <body>
 ${read("dashboard.html")}
+<script>${read("import-rows.js")}</script>
 <script>${read("dashboard.js")}</script>
 </body>
 </html>`;

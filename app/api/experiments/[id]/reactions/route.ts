@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/sheets";
+import { getViewer } from "@/lib/identity";
 import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -8,24 +8,29 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const session = await requireSession();
-  if (!session) {
+  // getViewer, not requireSession: a personal token identifies the same person a
+  // browser session does, so the skill can react too.
+  const viewer = await getViewer();
+  if (!viewer) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id: experimentId } = params;
-  const body = await request.json();
-  const { userIdentity, reaction } = body as {
-    userIdentity: string;
-    reaction: "up" | "down";
-  };
+  const body = await request.json().catch(() => ({}));
+  const { reaction } = body as { reaction?: "up" | "down" };
 
-  if (!userIdentity || !["up", "down"].includes(reaction)) {
+  if (!reaction || !["up", "down"].includes(reaction)) {
     return NextResponse.json(
-      { error: "userIdentity and reaction (up|down) are required" },
+      { error: "reaction must be \"up\" or \"down\"" },
       { status: 400 }
     );
   }
+
+  // Identity comes from the session, never from the request body. It used to be
+  // whatever name the browser sent, so a crafted request could react as someone
+  // else — or undo their reaction — and two people sharing a first name shared
+  // a vote. Email is the same identity ownership already uses.
+  const userIdentity = viewer.email;
 
   const { data: existing } = await supabase
     .from("experiment_reactions")

@@ -104,6 +104,51 @@ export function payloadToRecord(entry: ExperimentPayload) {
   };
 }
 
+/**
+ * The edit equivalent of payloadToRecord: only the fields the caller actually
+ * sent. payloadToRecord fills in every column, which is right for a create and
+ * destructive for an edit — a PATCH carrying just a title used to blank the
+ * client, the bucket and the metric along with it.
+ *
+ * Sending a field as "" still clears it. Leaving it out leaves it alone.
+ */
+export function payloadToPatch(entry: ExperimentPayload) {
+  const patch: Record<string, unknown> = {};
+  const put = (column: string, value: unknown) => {
+    if (value !== undefined) patch[column] = value;
+  };
+
+  put("client", entry.client);
+  put("industry", entry.industry);
+  put("use_case", entry.useCase);
+  put("bucket", entry.bucket);
+  put("experiment_name", entry.title);
+
+  // An unparseable date is treated as "not sent" rather than wiping the date.
+  if (entry.date !== undefined) {
+    const date = toDateOnly(entry.date);
+    if (date) patch.date_logged = date;
+  }
+
+  // Metrics are replaced as a unit — half a metric is not a meaningful edit.
+  if (entry.metrics !== undefined) {
+    const metric = entry.metrics[0] ?? {};
+    const qualitative = !!metric.qualitative;
+    patch.metric_type = qualitative ? "Qualitative" : "Quantitative";
+    patch.metric_label = metric.metric ?? "";
+    patch.before_value = qualitative ? "" : String(metric.before ?? "");
+    patch.after_value = qualitative ? "" : String(metric.after ?? "");
+    patch.pct_change = qualitative ? "" : computePctChange(metric.before, metric.after);
+    patch.direction = qualitative ? metric.direction ?? "" : "";
+    // evidence_note doubles as the qualitative note, which wins when both are sent.
+    if (qualitative && metric.note !== undefined) patch.evidence_note = metric.note;
+  }
+  if (patch.evidence_note === undefined) put("evidence_note", entry.description);
+
+  // logged_by is deliberately absent: an edit never reassigns ownership.
+  return patch;
+}
+
 function computePctChange(
   before: string | number | undefined,
   after: string | number | undefined

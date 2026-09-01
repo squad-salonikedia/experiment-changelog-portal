@@ -31,18 +31,29 @@ window.fetch = function (url, init) {
   if (cm) {
     const id = cm[1];
     db.comments[id] = db.comments[id] || [];
-    if (method === "GET") return J({ comments: db.comments[id] });
+    const commentId = url.includes("?") ? new URL("http://x" + url).searchParams.get("commentId") : null;
+    if (method === "GET") return J({ comments: db.comments[id], threading: true });
     if (method === "POST") {
-      const c = { id: "c" + (db.comments[id].length + 1), author: "Saloni Kedia", authorEmail: "saloni.kedia@squadstack.ai", body: body.body, createdAt: new Date().toISOString(), canDelete: true };
+      const c = { id: "c" + (db.comments[id].length + 1), author: "Saloni Kedia",
+        authorEmail: "saloni.kedia@squadstack.ai", body: body.body,
+        createdAt: new Date().toISOString(), editedAt: null,
+        parentId: body.parentId || null, canDelete: true, canEdit: true };
       db.comments[id].push(c);
       return J({ ok: true, comment: c });
     }
+    if (method === "PATCH") {
+      const c = db.comments[id].find((x) => x.id === commentId);
+      if (!c) return J({ error: "Comment not found" }, 404);
+      c.body = body.body;
+      c.editedAt = new Date().toISOString();
+      return J({ ok: true, comment: c });
+    }
     if (method === "DELETE") {
-      const cid = new URL("http://x" + url).searchParams.get("commentId");
-      db.comments[id] = db.comments[id].filter((c) => c.id !== cid);
+      db.comments[id] = db.comments[id].filter((c) => c.id !== commentId && c.parentId !== commentId);
       return J({ ok: true });
     }
   }
+
   const em = url.match(/^\/api\/experiments\/([^\/?]+)$/);
   if (em) {
     const id = em[1];
