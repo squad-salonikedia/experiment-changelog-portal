@@ -1168,8 +1168,11 @@
       '<div class="fly-comment-head">' +
         avatar(c.author, "sm") +
         '<div class="fly-comment-author">' + esc(c.author) + '</div>' +
-        '<div class="fly-comment-time">' + timeAgo(c.createdAt) +
-          (c.editedAt ? " · edited" : "") + '</div>' +
+        '<div class="fly-comment-time"' +
+          (c.editedAt ? ' title="Posted ' + esc(fullTimestamp(c.createdAt)) +
+            ', edited ' + esc(fullTimestamp(c.editedAt)) + '"' : '') + '>' +
+          (c.editedAt ? "edited " + timeAgo(c.editedAt) : timeAgo(c.createdAt)) +
+        '</div>' +
         (state.commentThreading && !c.parentId && !editing
           ? '<button class="fly-comment-act" data-action="reply-to" data-comment-id="' + esc(c.id) + '">Reply</button>'
           : '') +
@@ -1194,6 +1197,15 @@
 
     html += (replies || []).map((r) => renderComment(r, [])).join("");
     return html + '</div>';
+  }
+
+  /** Exact date and time, for the tooltip on an edited comment. */
+  function fullTimestamp(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    const time = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear() + ", " + time;
   }
 
   function timeAgo(dateStr) {
