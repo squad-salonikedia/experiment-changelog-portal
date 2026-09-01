@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getViewer } from "@/lib/identity";
 import { supabase } from "@/lib/supabase";
 import { generateToken, tokensEnabled } from "@/lib/tokens";
+import { SKILL_VERSION } from "@/lib/skill";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +24,31 @@ export async function GET() {
     return NextResponse.json({ enabled: false, tokens: [] });
   }
 
-  const { data } = await supabase
+  // skill_version only exists once migration 008 is run, so ask for it and fall
+  // back to the older shape rather than failing the whole list.
+  const withVersion = await supabase
     .from("api_tokens")
-    .select("id, name, prefix, created_at, last_used_at")
+    .select("id, name, prefix, created_at, last_used_at, skill_version")
     .eq("user_email", viewer.email)
     .is("revoked_at", null)
     .order("created_at", { ascending: false });
 
-  return NextResponse.json({ enabled: true, tokens: data ?? [] });
+  let data: Record<string, unknown>[] | null = withVersion.data;
+  if (withVersion.error) {
+    const legacy = await supabase
+      .from("api_tokens")
+      .select("id, name, prefix, created_at, last_used_at")
+      .eq("user_email", viewer.email)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: false });
+    data = legacy.data;
+  }
+
+  return NextResponse.json({
+    enabled: true,
+    tokens: data ?? [],
+    skillVersion: SKILL_VERSION,
+  });
 }
 
 export async function POST(request: Request) {

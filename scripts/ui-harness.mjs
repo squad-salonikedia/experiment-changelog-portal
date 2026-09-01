@@ -28,6 +28,7 @@ const out = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Flywheel — UI harness (fake API)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>${read("src/dashboard.css")}</style>
 </head>
 <body>

@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
 import { getViewer } from "@/lib/identity";
 import { supabase } from "@/lib/supabase";
-import { buildSkill } from "@/lib/skill";
+import { buildSkill, SKILL_VERSION } from "@/lib/skill";
 import { generateToken, tokensEnabled } from "@/lib/tokens";
 
 export const dynamic = "force-dynamic";
+
+let versionColumn: Promise<boolean> | null = null;
+function hasSkillVersionColumn(): Promise<boolean> {
+  if (!versionColumn) {
+    versionColumn = (async () => {
+      const { error } = await supabase.from("api_tokens").select("skill_version").limit(1);
+      return !error;
+    })();
+  }
+  return versionColumn;
+}
 
 /** GET — the shared, key-free copy. Safe to read or link; cannot write. */
 export async function GET(request: Request) {
@@ -50,12 +61,18 @@ export async function POST(request: Request) {
   const label = String(body?.name ?? "").trim().slice(0, 60) || "Claude skill";
 
   const { token, hash, prefix } = generateToken();
-  const { error } = await supabase.from("api_tokens").insert({
+  const record: Record<string, unknown> = {
     user_email: viewer.email,
     name: label,
     token_hash: hash,
     prefix,
-  });
+  };
+
+  // skill_version arrives with migration 008. Without it the key is still
+  // created, it just cannot be flagged as stale later.
+  if (await hasSkillVersionColumn()) record.skill_version = SKILL_VERSION;
+
+  const { error } = await supabase.from("api_tokens").insert(record);
 
   if (error) {
     console.error("Failed to create token", error);

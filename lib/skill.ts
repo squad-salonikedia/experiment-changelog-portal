@@ -9,6 +9,17 @@
  * A personal file IS a credential. Every copy logs experiments as the person it
  * was generated for, so the file says so at the top, loudly.
  */
+/**
+ * Bumped whenever the instructions in the file change in a way that alters
+ * behaviour. Every downloaded copy is frozen at the version it was generated
+ * with, so this is what lets the dashboard tell someone their skill is stale.
+ *
+ *   1  the original file
+ *   2  table confirmations, infer-don't-interrogate, edit/delete/my-contributions
+ *   3  PATCH merges instead of replacing; replies, comment editing, reactions
+ */
+export const SKILL_VERSION = 3;
+
 export function buildSkill(origin: string, token?: string, person?: string): string {
   const personal = !!token;
   const auth = personal ? token! : "$FLYWHEEL_TOKEN";
@@ -33,6 +44,8 @@ ${header}
 Flywheel is SquadStack's shared record of what we changed on voice agents and
 what it moved. This skill **reads**, **writes**, **edits** and **deletes**
 entries.
+
+Skill version ${SKILL_VERSION} — if the dashboard says a newer one exists, download it again.
 
 Base URL: \`${origin}\`
 ${personal ? "Your key is already set up below — there is nothing to configure." : "Set `FLYWHEEL_TOKEN` in your environment first."}

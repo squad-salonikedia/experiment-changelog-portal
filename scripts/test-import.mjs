@@ -10,7 +10,17 @@
 import { readFileSync } from "fs";
 
 new Function(readFileSync(new URL("../src/import-rows.js", import.meta.url), "utf8"))();
-const { importRows } = globalThis.FlywheelImport;
+const { importRows, templateCsv, TEMPLATE_COLUMNS, normaliseDate } = globalThis.FlywheelImport;
+
+/** Minimal CSV reader — enough for the template, which has no quoted commas. */
+function parseCsv(text) {
+  const [head, ...lines] = text.trim().split("\n");
+  const headers = head.split(",");
+  return lines.map((line) => {
+    const cells = line.split(",");
+    return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? ""]));
+  });
+}
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -132,6 +142,113 @@ check("numbers from a spreadsheet arrive as strings", () => {
   const [e] = importRows([{ Client: "X", Title: "Y", Metric: "ADC%", Before: 30, After: 15 }], OPTS);
   eq(e.metrics[0].before, "30", "before");
   ok(typeof e.metrics[0].after === "string", "after should be a string");
+});
+
+console.log("\n\x1b[1mDates out of a spreadsheet\x1b[0m");
+
+check("an ISO date is taken as written", () => {
+  eq(normaliseDate("2026-09-02"), "2026-09-02", "iso");
+  eq(normaliseDate("2026-09-02T00:00:00+05:30"), "2026-09-02", "iso with a time");
+});
+
+check("an Excel serial becomes the date it stands for", () => {
+  // What SheetJS actually hands back for a .xlsx date cell.
+  eq(normaliseDate(46267.00011574074), "2026-09-02", "xlsx serial");
+  eq(normaliseDate(46267), "2026-09-02", "whole serial");
+});
+
+check("the reader's timezone cannot shift the day", () => {
+  // The fraction in a serial is the offset of whoever opened the file, not a
+  // time of day — half a day either way must still land on the same date.
+  eq(normaliseDate(46267.22928240741), "2026-09-02", "read in IST (+5:30)");
+  eq(normaliseDate(46266.667), "2026-09-02", "read in UTC-8");
+  eq(normaliseDate(46267.49), "2026-09-02", "just under half a day late");
+});
+
+check("a Date object is read as the day it shows", () => {
+  eq(normaliseDate(new Date(2026, 8, 2, 14, 30)), "2026-09-02", "date object");
+  eq(normaliseDate(new Date("nonsense")), "", "invalid date");
+});
+
+check("numbers that are not dates are refused", () => {
+  eq(normaliseDate(5), "", "a count, not a date");
+  eq(normaliseDate(999999), "", "far future");
+  eq(normaliseDate("not a date"), "", "text");
+  eq(normaliseDate(""), "", "empty");
+});
+
+check("a spreadsheet date survives the whole import", () => {
+  const [e] = importRows([{
+    Date: 46267.22928240741, Client: "X", Title: "Y", Metric: "ADC%", Before: 30, After: 15,
+  }], OPTS);
+  eq(e.date, "2026-09-02", "date");
+});
+
+check("an unreadable date falls back to today rather than garbage", () => {
+  const [e] = importRows([{
+    Date: "sometime last week", Client: "X", Title: "Y", Metric: "ADC%", Before: 1, After: 2,
+  }], OPTS);
+  eq(e.date, "2026-09-02", "date");
+});
+
+console.log("\n\x1b[1mThe downloadable template\x1b[0m");
+
+const TEMPLATE = templateCsv({ today: "2026-09-02", owner: "Saloni" });
+
+check("every column the template offers is one the parser reads", () => {
+  // Each header, normalised the way the parser normalises it, must be a key it
+  // actually looks for — otherwise people fill in a column that gets dropped.
+  const understood = new Set([
+    "date", "datelogged", "client", "industry", "usecase", "bucket", "title",
+    "experiment", "experimentname", "description", "notes", "evidencenote",
+    "prompt", "owner", "loggedby", "metric", "metriclabel", "before",
+    "beforevalue", "after", "aftervalue", "direction",
+  ]);
+  const unread = TEMPLATE_COLUMNS.filter(
+    (h) => !understood.has(h.toLowerCase().replace(/[^a-z]/g, ""))
+  );
+  eq(unread, [], "columns the parser ignores");
+});
+
+check("the template round-trips into two experiments", () => {
+  const out = importRows(parseCsv(TEMPLATE), OPTS);
+  eq(out.length, 2, "experiment count");
+});
+
+check("the quantitative sample row keeps every value", () => {
+  const [e] = importRows(parseCsv(TEMPLATE), OPTS);
+  eq(e.date, "2026-09-02", "date");
+  eq(e.client, "Khatabook", "client");
+  eq(e.industry, "BFSI", "industry");
+  eq(e.useCase, "Pre-approved Business Loan", "useCase");
+  eq(e.bucket, "Cadence", "bucket");
+  eq(e.title, "Shortened retry window", "title");
+  eq(e.description, "Cut retries from 3 to 1", "description");
+  eq(e.owner, "Saloni", "owner");
+  eq(e.metrics, [{ metric: "ADC%", qualitative: false, before: "30", after: "15" }], "metrics");
+});
+
+check("the qualitative sample row uses Direction instead of numbers", () => {
+  const [, e] = importRows(parseCsv(TEMPLATE), OPTS);
+  eq(e.client, "DMI", "client");
+  eq(e.bucket, "Prompt", "bucket");
+  eq(e.metrics[0].qualitative, true, "qualitative");
+  eq(e.metrics[0].metric, "Cost per call", "metric");
+  eq(e.metrics[0].direction, "better", "direction");
+  eq(e.metrics[0].note, "Swapped the model to cut per-call cost", "note");
+});
+
+check("nothing typed in the template is silently dropped", () => {
+  const rows = parseCsv(TEMPLATE);
+  const out = importRows(rows, OPTS);
+  rows.forEach((row, i) => {
+    const entry = out[i];
+    const flat = JSON.stringify(entry);
+    for (const [header, value] of Object.entries(row)) {
+      if (!value) continue;
+      ok(flat.includes(value), `"${header}" = "${value}" did not survive the import`);
+    }
+  });
 });
 
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m`);

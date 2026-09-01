@@ -531,6 +531,29 @@ async function main() {
     eq((await api("/api/me", { token })).status, 401, "a revoked key must stop working");
   });
 
+  await check("a downloaded skill states its version and records it on the key", async () => {
+    const res = await api("/api/skill", {
+      method: "POST", cookie: adminCookie,
+      body: JSON.stringify({ name: "smoke test (skill version)" }),
+    });
+    eq(res.status, 200, "status");
+    const { content, prefix } = await json(res);
+    const stated = content.match(/Skill version (\d+)/);
+    ok(stated, "the generated file does not state a version");
+
+    const { tokens, skillVersion } = await json(await api("/api/tokens", { cookie: adminCookie }));
+    ok(skillVersion, "the server does not report a current version");
+    eq(Number(stated[1]), skillVersion, "version in the file vs the server's");
+
+    const row = tokens.find((t) => t.prefix === prefix);
+    ok(row, "the new key is not listed");
+    await api(`/api/tokens?id=${encodeURIComponent(row.id)}`, { method: "DELETE", cookie: adminCookie });
+
+    if (row.skill_version === undefined) return "migration 008 not run — version not recorded yet";
+    eq(row.skill_version, skillVersion, "version recorded on the key");
+    return `version ${skillVersion}`;
+  });
+
   await check("the access list is admin-only", async () => {
     const res = await api("/api/admin/invite", { cookie: adminCookie });
     eq(res.status, 200, "status for an admin");
@@ -628,7 +651,7 @@ async function cleanup() {
   for (const email of created.people) {
     await supabase.from("allowed_users").delete().eq("email", email);
   }
-  await supabase.from("api_tokens").delete().eq("name", "smoke test (round trip)");
+  await supabase.from("api_tokens").delete().like("name", "smoke test%");
   if (tokenRow) await supabase.from("api_tokens").delete().eq("id", tokenRow);
 }
 

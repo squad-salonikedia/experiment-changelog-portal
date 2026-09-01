@@ -26,7 +26,14 @@ window.fetch = function (url, init) {
   const body = init.body ? JSON.parse(init.body) : null;
   if (url.startsWith("/api/me")) return J({ name: "Saloni Kedia", email: "saloni.kedia@squadstack.ai", firstName: "Saloni", role: "admin" });
   if (url.startsWith("/api/options")) return J({ clients: ["BlackBuck", "Khatabook"], industries: ["BFSI", "Logistics"], buckets: ["App Opener", "Cadence"], metrics: ["ADC%", "Conversion%"], owners: ["Saloni", "Rajat"], useCasesByIndustry: { BFSI: ["PA-PL"], Logistics: [] }, features: { prompt: true, ownerEmail: true } });
-  if (url.startsWith("/api/tokens")) return J({ enabled: true, tokens: [] });
+  if (url.startsWith("/api/tokens")) return J({
+    enabled: true,
+    skillVersion: 3,
+    tokens: [
+      { id: "t1", name: "Claude skill", prefix: "fw_abc1234", created_at: "2026-08-20T10:00:00Z", last_used_at: "2026-09-01T10:00:00Z", skill_version: 1 },
+      { id: "t2", name: "Claude skill (current)", prefix: "fw_xyz9876", created_at: "2026-09-02T10:00:00Z", last_used_at: null, skill_version: 3 },
+    ],
+  });
   const cm = url.match(/^\/api\/experiments\/([^\/?]+)\/comments/);
   if (cm) {
     const id = cm[1];

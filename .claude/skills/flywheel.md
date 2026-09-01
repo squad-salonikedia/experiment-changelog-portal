@@ -12,6 +12,8 @@ Flywheel is SquadStack's shared record of what we changed on voice agents and
 what it moved. This skill **reads**, **writes**, **edits** and **deletes**
 entries.
 
+Skill version 3 — if the dashboard says a newer one exists, download it again.
+
 Base URL: `http://localhost:3000`
 Set `FLYWHEEL_TOKEN` in your environment first.
 

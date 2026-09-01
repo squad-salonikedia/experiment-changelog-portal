@@ -2111,12 +2111,13 @@
   }
 
   function downloadTemplate() {
-    const header = "Date,Client,Industry,Use case,Bucket,Title,Description,Prompt,Metric,Before,After,Direction,Owner";
-    const rows = [
-      todayISO() + ',Khatabook,BFSI,Pre-approved Business Loan,Cadence,Shortened retry window,Cut retries from 3 to 1,,ADC%,30,15,,' + (state.me.firstName || "Saloni"),
-      todayISO() + ',DMI,BFSI,PA-PL,Prompt,Moved to a cheaper model,Swapped the model to cut per-call cost,,Cost per call,,,better,' + (state.me.firstName || "Saloni"),
-    ];
-    const blob = new Blob([header + "\n" + rows.join("\n") + "\n"], { type: "text/csv" });
+    // Columns and sample rows come from src/import-rows.js, so the template can
+    // never drift away from the parser that reads it back.
+    const csv = FlywheelImport.templateCsv({
+      today: todayISO(),
+      owner: state.me.firstName || "Saloni",
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -2306,6 +2307,15 @@
     await paintConnect();
   }
 
+  /**
+   * A key predating the current skill version — or one from before versions were
+   * recorded at all — is attached to a file whose instructions have moved on.
+   */
+  function isStaleKey(token, currentVersion) {
+    if (!currentVersion) return false;
+    return (token.skill_version || 0) < currentVersion;
+  }
+
   async function paintConnect(justDownloaded) {
     let data = { enabled: false, tokens: [] };
     try {
@@ -2344,6 +2354,15 @@
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
         "Download my skill</button>";
 
+      // Downloading again replaces the file; the old key keeps working until revoked.
+      if ((data.tokens || []).some((t) => isStaleKey(t, data.skillVersion))) {
+        html += '<div class="fly-msg warn show" style="margin-top:10px">' +
+          "<strong>Your skill is out of date.</strong> It was downloaded before the " +
+          "current version, so it is still following instructions that have since " +
+          "changed. Download it again to replace the file." +
+          "</div>";
+      }
+
       html += '<div class="fly-note" style="margin-top:10px">Your key is inside the file, so anything ' +
         "you log is recorded as <strong>" + esc(state.me.name || state.me.firstName) +
         "</strong>. Keep it to yourself.</div>";
@@ -2377,8 +2396,12 @@
       } else {
         html += '<div class="fly-token-list">';
         for (const t of data.tokens) {
+          // A downloaded skill never updates itself, so a key handed out before
+          // the current version is following instructions that have changed.
+          const stale = isStaleKey(t, data.skillVersion);
           html += '<div class="fly-token-row"><div style="min-width:0">' +
-            '<div class="fly-token-name">' + esc(t.name) + "</div>" +
+            '<div class="fly-token-name">' + esc(t.name) +
+              (stale ? '<span class="fly-token-stale">Out of date</span>' : "") + "</div>" +
             '<div class="fly-token-meta"><code>' + esc(t.prefix) + "…</code> · created " +
             esc(formatDate(t.created_at)) +
             (t.last_used_at ? " · last used " + esc(formatDate(t.last_used_at)) : " · never used") +
