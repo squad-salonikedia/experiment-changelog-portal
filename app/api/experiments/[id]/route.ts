@@ -108,9 +108,13 @@ export async function DELETE(
 
   const { id } = params;
 
+  // owner_email is what ownsExperiment() actually checks. Selecting only
+  // logged_by left it undefined, so every delete fell through to the
+  // first-name fallback that exists for pre-migration-002 rows — meaning
+  // anyone whose first name matched could delete someone else's experiment.
   const { data: existing } = await supabase
     .from("experiments")
-    .select("logged_by")
+    .select("logged_by, owner_email")
     .eq("id", id)
     .maybeSingle();
 
