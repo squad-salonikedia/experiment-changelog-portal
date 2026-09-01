@@ -14,6 +14,8 @@
       features: { prompt: false, ownerEmail: false },
     },
     me: { name: "", email: "", firstName: "", role: "member" },
+    // null until /api/tokens answers. false is what lights the setup dots.
+    hasKey: null,
     filters: { client: "", industry: "", useCase: "", bucket: "", owner: "", metricType: "" },
     search: "",
     sortKey: "date",
@@ -2327,6 +2329,9 @@
       if (res.ok) data = await res.json();
     } catch (e) { /* offline */ }
 
+    state.hasKey = !!(data.tokens && data.tokens.length);
+    paintKeyNudge();
+
     let html = "";
 
     if (justDownloaded) {
@@ -2522,6 +2527,27 @@
     indicator.style.transform = transform;
     void indicator.offsetWidth; // flush so the transition does not replay
     indicator.style.transition = "";
+  }
+
+  /** Dots on the avatar chip and the Connect item while no key exists. */
+  function paintKeyNudge() {
+    const show = state.hasKey === false;
+    for (const id of ["flyChipDot", "flyConnectDot"]) {
+      const el = $(id);
+      if (el) el.style.display = show ? "" : "none";
+    }
+  }
+
+  async function refreshKeyState() {
+    try {
+      const res = await fetch("/api/tokens", { cache: "no-store" });
+      const d = res.ok ? await res.json() : null;
+      state.hasKey = d ? !!(d.tokens && d.tokens.length) : null;
+    } catch (e) {
+      state.hasKey = null;
+    }
+    paintKeyNudge();
+    return state.hasKey;
   }
 
   function paintUserChip() {
@@ -3243,9 +3269,7 @@
       '<div class="fly-welcome-foot">' +
         '<button class="fly-btn fly-btn-primary" data-action="welcome-setup">Set up now</button>' +
         '<button class="fly-btn fly-btn-ghost" data-action="welcome-later">I\'ll do this later</button>' +
-        '<div class="fly-welcome-foot-link">' +
-          'No rush — it is always under your avatar menu → <strong>Connect your AI</strong>.' +
-        '</div>' +
+
       '</div>';
 
     openOverlay($("flyWelcome"), $("flyWelcomeScrim"));
@@ -3371,30 +3395,25 @@
     // Restore drafts indicator.
     paintDraftsBadge();
 
-    // First-time welcome (desktop only).
-    // Always checks tokens — shows welcome whenever user has no API key,
-    // regardless of whether they completed it before.
-    if (shouldShowWelcome()) {
-      fetch("/api/tokens", { cache: "no-store" })
-        .then(function (r) { return r.ok ? r.json() : { tokens: [] }; })
-        .then(function (d) {
-          if (d.tokens && d.tokens.length) {
-            markWelcomed();
-            var nudgeInfo = shouldShowNudge();
-            if (nudgeInfo) requestAnimationFrame(function () { showNudge(nudgeInfo); });
-          } else {
-            requestAnimationFrame(function () { openWelcome(); });
-          }
-        })
-        .catch(function () {
-          var welcomed = null;
-          try { welcomed = localStorage.getItem("flywheel_welcomed"); } catch {}
-          if (!welcomed) requestAnimationFrame(function () { openWelcome(); });
-        });
-    } else {
+    // The key check runs for everyone, not just where the welcome modal is
+    // eligible — mobile suppresses the modal but still needs the setup dots.
+    refreshKeyState().then(function (hasKey) {
+      if (hasKey === true) markWelcomed();
+
+      var needsSetup = hasKey === false;
+      if (hasKey === null) {
+        // Could not reach /api/tokens. Fall back to whether they have ever been
+        // welcomed rather than assuming either way.
+        try { needsSetup = !localStorage.getItem("flywheel_welcomed"); } catch (e) { needsSetup = false; }
+      }
+
+      if (needsSetup && shouldShowWelcome()) {
+        requestAnimationFrame(function () { openWelcome(); });
+        return;
+      }
       var nudgeInfo = shouldShowNudge();
       if (nudgeInfo) requestAnimationFrame(function () { showNudge(nudgeInfo); });
-    }
+    });
   }
 
   init();

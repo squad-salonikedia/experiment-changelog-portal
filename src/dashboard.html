@@ -22,10 +22,11 @@
 
         <div class="fly-menu-wrap" id="flyMenuWrap">
           <button class="fly-user-chip" id="flyMenuBtn" aria-haspopup="true" aria-expanded="false"></button>
+          <span class="fly-dot" id="flyChipDot" style="display:none" aria-hidden="true"></span>
           <div class="fly-popover right" id="flyMenuPopover" role="menu">
             <div class="fly-popover-head" id="flyMenuIdentity"></div>
             <button class="fly-popover-item" data-menu="drafts">My drafts <span id="flyDraftsBadge" class="fly-badge" style="display:none">0</span></button>
-            <button class="fly-popover-item" data-menu="connect">Connect your AI</button>
+            <button class="fly-popover-item" data-menu="connect">Connect your AI<span class="fly-dot" id="flyConnectDot" style="display:none" aria-hidden="true"></span></button>
             <button class="fly-popover-item" data-menu="access" id="flyMenuAccess" style="display:none">Manage access</button>
             <button class="fly-popover-item" data-menu="refresh">Refresh data</button>
             <button class="fly-popover-item" data-menu="export">Export as CSV</button>

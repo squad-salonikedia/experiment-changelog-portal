@@ -776,6 +776,26 @@ button, input, select, textarea { font-family: inherit; }
 .fly-popover-search:focus { outline: none; border-color: var(--primary); box-shadow: var(--ring); }
 
 .fly-menu-wrap { position: relative; }
+
+/* Setup is still waiting in Connect your AI. Static, not pulsing — it stays
+   put until a key exists, and a nag that animates forever is just noise. */
+.fly-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2DD4A8;
+  flex: none;
+}
+.fly-menu-wrap > .fly-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  /* Ring in the header colour so the dot reads as sitting on the chip. */
+  box-shadow: 0 0 0 2.5px #0f0a1e;
+  pointer-events: none;
+}
 .fly-menu-wrap .fly-popover { min-width: 210px; }
 
 .fly-clear-link {
