@@ -2336,21 +2336,16 @@
         "</div>";
     }
 
-    html += '<div class="fly-step-hint" style="margin-bottom:14px">' +
-      "Download your personal skill file once. Your key is already inside it, so " +
-      "everything you log from Claude is recorded as <strong>" + esc(state.me.name || state.me.firstName) +
-      "</strong> \u2014 even if you never open this site again.</div>";
-
-    // Sits above the download button on purpose. Buried in a hint below the fold
-    // it got skipped, and people then burned time trying to make it work in chat.
+    // One callout, one button, one ownership line, three steps. Attribution used
+    // to be stated in the drawer subtitle, again here, and a third time at the
+    // bottom; it now appears once, under the button that hands over the key.
     html += '<div class="fly-welcome-warn" style="margin:0 0 18px">' +
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M12 9v4"/><path d="M12 17h.01"/>' +
       '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>' +
-      "<span><strong>Claude Code only, for now.</strong> This will not work in Claude chat or " +
-      "Cowork \u2014 Flywheel is not on the org's allowed network list, so those block the " +
-      "connection. We will tell you when that changes.</span></div>";
+      "<span><strong>Claude Code only, for now.</strong> Chat and Cowork cannot reach Flywheel \u2014 " +
+      "it is not on the org's allowed network list yet. We will tell you when that changes.</span></div>";
 
     if (!data.enabled) {
       html += '<div class="fly-msg info show">Key storage is not set up yet. ' +
@@ -2360,11 +2355,14 @@
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
         "Download my skill</button>";
 
+      html += '<div class="fly-note" style="margin-top:10px">Your key is inside the file, so anything ' +
+        "you log is recorded as <strong>" + esc(state.me.name || state.me.firstName) +
+        "</strong>. Keep it private \u2014 do not share it or commit it to a repo.</div>";
+
       // Claude Code only discovers a skill as a folder containing SKILL.md — a bare
       // flywheel.md in ~/.claude/skills/ is silently never loaded. Handing the file
-      // to Claude Code lets it sort that out; the command is here for anyone who
-      // would rather not. No restart step: Claude Code picks up a new skill without
-      // one.
+      // to Claude Code lets it sort that out. No restart step: a new skill is picked
+      // up in a running session.
       const installCmd =
         "mkdir -p ~/.claude/skills/flywheel && mv ~/Downloads/flywheel.md ~/.claude/skills/flywheel/SKILL.md";
 
@@ -2373,20 +2371,15 @@
         '<div class="fly-welcome-step-text"><strong>' + title + "</strong>" +
         "<span>" + body + "</span></div></div>";
 
-      html += '<div class="fly-field-label" style="margin:24px 0 13px">Set it up</div>';
-      html += '<div class="fly-welcome-steps" style="margin-bottom:16px">';
-      html += step(1, "Open Claude Code",
-        "Any folder will do \u2014 it does not have to be a project.");
+      html += '<div class="fly-field-label" style="margin:26px 0 13px">Set it up</div>';
+      html += '<div class="fly-welcome-steps" style="margin-bottom:24px">';
+      html += step(1, "Open Claude Code", "Any folder will do.");
       html += step(2, "Hand it the file",
         "Drag <code>flywheel.md</code> from Downloads into the chat and say " +
-        "\u201cinstall this skill\u201d. Claude Code puts it where it belongs." +
-        '<span style="display:block;margin-top:9px;color:var(--text-muted)">Rather do it yourself?</span>' +
-        codeBlock(installCmd));
+        "\u201cinstall this skill\u201d, or run this yourself:" + codeBlock(installCmd));
       html += step(3, "Ask it something",
         "\u201cWhat have we tried on Khatabook?\u201d or \u201clog this experiment\u201d.");
       html += "</div>";
-      html += '<div class="fly-hint" style="margin-bottom:22px">Your skill file is a personal key \u2014 ' +
-        "it logs experiments as you. Do not share it, and keep it out of any repo you commit.</div>";
 
 
       html += '<div class="fly-field-label" style="margin-bottom:9px">Your keys</div>';
