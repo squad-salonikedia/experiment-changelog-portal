@@ -137,5 +137,16 @@ export async function DELETE(
     return NextResponse.json({ error: "Database write failed" }, { status: 502 });
   }
 
+  // Reactions carry a foreign key and cascade on their own; comments
+  // (migration 004) do not, so without this the thread outlives the experiment
+  // it belongs to — invisible in the UI and attached to an id nothing resolves.
+  const { error: commentError } = await supabase
+    .from("experiment_comments")
+    .delete()
+    .eq("experiment_id", id);
+  if (commentError) {
+    console.error("Deleted the experiment but left its comments behind", commentError);
+  }
+
   return NextResponse.json({ ok: true });
 }

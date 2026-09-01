@@ -341,6 +341,23 @@ async function main() {
     const after = await json(await api("/api/experiments"));
     ok(after.some((e) => e.id === theirs.id), "a 403 still removed the row");
   });
+  await check("deleting an entry takes its comments with it", async () => {
+    const made = await json(await api("/api/experiments", {
+      method: "POST",
+      body: JSON.stringify({ entries: [{ client: "ZZ Smoke Test Co", industry: "BFSI", bucket: "Cadence",
+        title: `[smoke test] cascade ${stamp}`, metrics: [{ metric: "ADC%", before: 1, after: 2 }] }] }),
+    }));
+    const id = made.entries[0].id;
+    created.experiments.push(id);
+    await api(`/api/experiments/${id}/comments`, { method: "POST", body: JSON.stringify({ body: "attached to a doomed entry" }) });
+    const before = await json(await api(`/api/experiments/${id}/comments`));
+    eq(before.comments.length, 1, "comment count before the delete");
+    eq((await api(`/api/experiments/${id}`, { method: "DELETE" })).status, 200, "delete status");
+    created.experiments = created.experiments.filter((x) => x !== id);
+    const after = await json(await api(`/api/experiments/${id}/comments`));
+    eq(after.comments.length, 0, "comments left behind after the experiment was deleted");
+  });
+
   await check("DELETE removes your own entry, and it stays gone", async () => {
     const res = await api(`/api/experiments/${quantId}`, { method: "DELETE" });
     eq(res.status, 200, "status");
