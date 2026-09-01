@@ -8,3 +8,4 @@ node_modules
 tsconfig.tsbuildinfo
 supabase/.temp/
 .ui-harness.html
+.env.local.*
