@@ -126,6 +126,12 @@
     } catch { return []; }
   }
 
+  /**
+   * Returns the draft id, or null when the browser refused to store it —
+   * private windows and blocked site data both throw here, and a quota error is
+   * possible once enough drafts pile up. The caller has to know, because the
+   * whole point of saving is that the drawer is about to close.
+   */
   function saveDraftToStorage(draft) {
     const drafts = loadDrafts();
     const id = draft._draftId || ("d_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6));
@@ -134,14 +140,20 @@
     const idx = drafts.findIndex((d) => d._draftId === id);
     if (idx >= 0) drafts[idx] = draft;
     else drafts.unshift(draft);
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    try {
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    } catch (e) {
+      return null;
+    }
     paintDraftsBadge();
     return id;
   }
 
   function deleteDraft(draftId) {
     const drafts = loadDrafts().filter((d) => d._draftId !== draftId);
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    try {
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    } catch (e) { /* nothing stored means nothing to remove */ }
     paintDraftsBadge();
   }
 
@@ -205,6 +217,8 @@
     $("flyDrawerSub").textContent = "Pick up where you left off.";
     showDrawer();
     paintStep("next");
+    syncStep();
+    markDraftClean();
   }
 
   function pctChange(before, after, metric) {
@@ -939,7 +953,19 @@
      ============================================================ */
   const overlayTimers = new Map();
 
-  const OVERLAY_SELECTOR = ".fly-drawer.open, .fly-sheet.open, .fly-welcome.open";
+  const OVERLAY_SELECTOR =
+    ".fly-drawer.open, .fly-sheet.open, .fly-welcome.open, .fly-confirm.open";
+
+  // Opening order, so the confirm that sits on top of the log drawer is the one
+  // that traps focus. DOM order would give the wrong answer.
+  const overlayStack = [];
+
+  function topOverlay() {
+    for (let i = overlayStack.length - 1; i >= 0; i--) {
+      if (overlayStack[i].classList.contains("open")) return overlayStack[i];
+    }
+    return null;
+  }
 
   /**
    * While a panel is up, the page behind it must not move. Without this, a
@@ -980,7 +1006,7 @@
 
   function onOverlayTab(e) {
     if (e.key !== "Tab") return;
-    const panel = document.querySelector(OVERLAY_SELECTOR);
+    const panel = topOverlay();
     if (!panel) return;
 
     const items = focusablesIn(panel);
@@ -1015,6 +1041,10 @@
       overlayReturnFocus = document.activeElement;
     }
 
+    const at = overlayStack.indexOf(panel);
+    if (at >= 0) overlayStack.splice(at, 1);
+    overlayStack.push(panel);
+
     for (const el of [panel, scrim]) {
       if (!el) continue;
       el.classList.remove("closing");
@@ -1025,7 +1055,8 @@
 
     // Focus the panel itself rather than its first control, so a screen reader
     // reads the heading and nothing is typed into by accident.
-    const target = panel.querySelector(".fly-drawer-panel, .fly-sheet-panel, .fly-welcome-card") || panel;
+    const target = panel.querySelector(
+      ".fly-drawer-panel, .fly-sheet-panel, .fly-welcome-card, .fly-confirm-card") || panel;
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     requestAnimationFrame(() => target.focus({ preventScroll: true }));
   }
@@ -1047,8 +1078,20 @@
         if (el) el.classList.remove("open", "closing");
       }
       overlayTimers.delete(key);
+      const at = overlayStack.indexOf(panel);
+      if (at >= 0) overlayStack.splice(at, 1);
       // Only after the class is gone does the page count as uncovered.
       syncScrollLock();
+
+      // Handing focus back to a panel still underneath keeps the keyboard where
+      // the user can see it, instead of dropping it on the page behind.
+      const below = topOverlay();
+      if (below) {
+        const card = below.querySelector(
+          ".fly-drawer-panel, .fly-sheet-panel, .fly-welcome-card, .fly-confirm-card") || below;
+        card.focus({ preventScroll: true });
+        return;
+      }
 
       if (!document.querySelector(OVERLAY_SELECTOR) && overlayReturnFocus) {
         const back = overlayReturnFocus;
@@ -1514,6 +1557,8 @@
     $("flyDrawerSub").textContent = "A few quick steps — nothing is saved until the last one.";
     showDrawer();
     paintStep("next");
+    syncStep();
+    markDraftClean();
   }
 
   function openEditDrawer(id) {
@@ -1546,6 +1591,8 @@
     $("flyDrawerSub").textContent = "Changes save straight to the database for everyone.";
     showDrawer();
     paintStep("next");
+    syncStep();
+    markDraftClean();
   }
 
   function showDrawer() {
@@ -1553,10 +1600,97 @@
     openOverlay($("flyDrawer"), $("flyDrawerScrim"));
   }
 
+  /**
+   * A snapshot of the form as it was when the drawer opened. Comparing against
+   * it is what tells us whether closing would throw work away — and it works
+   * the same for a blank new entry, a resumed draft, and an edit of something
+   * already logged, which a comparison against emptyDraft() would not.
+   */
+  function snapshotDraft() {
+    if (!state.draft) return "";
+    const { _draftId, _savedAt, ...rest } = state.draft;
+    return JSON.stringify(rest);
+  }
+
+  function markDraftClean() {
+    state.draftBaseline = snapshotDraft();
+  }
+
+  function draftIsDirty() {
+    if (!state.draft) return false;
+    // The open step's inputs live in the DOM until something reads them back.
+    syncStep();
+    return snapshotDraft() !== state.draftBaseline;
+  }
+
+  /**
+   * Every way out of the log drawer that the user drives — the scrim, Escape,
+   * Cancel — comes through here. Closing straight away is right when nothing
+   * has been typed; when something has, losing it to a stray click on the
+   * background is not a reasonable thing to do to someone.
+   */
+  function requestCloseDrawer() {
+    if (!$("flyDrawer").classList.contains("open")) return;
+    if (!draftIsDirty()) {
+      closeDrawer();
+      return;
+    }
+    openUnsavedConfirm();
+  }
+
+  function openUnsavedConfirm() {
+    // An edit has no draft to save to: drafts resume as new experiments, so
+    // offering it here would quietly fork the entry instead of updating it.
+    const editing = !!state.editingId;
+
+    $("flyConfirmTitle").textContent = editing
+      ? "Discard your changes?"
+      : "Keep this experiment?";
+    $("flyConfirmBody").textContent = editing
+      ? "Your edits to this experiment have not been saved yet."
+      : "Nothing is logged yet. Save it as a draft and you can pick it up later from My drafts.";
+
+    $("flyConfirmActions").innerHTML =
+      '<button class="fly-btn fly-btn-ghost" data-action="confirm-keep-editing">Keep editing</button>' +
+      '<button class="fly-btn fly-btn-danger" data-action="confirm-discard">' +
+        (editing ? "Discard changes" : "Discard") + "</button>" +
+      (editing
+        ? ""
+        : '<button class="fly-btn fly-btn-primary" data-action="confirm-save-draft">Save as draft</button>');
+
+    openOverlay($("flyConfirm"), $("flyConfirmScrim"));
+  }
+
+  function closeUnsavedConfirm() {
+    closeOverlay($("flyConfirm"), $("flyConfirmScrim"), 200);
+  }
+
+  /** Shared by the footer button and the confirm, so both behave identically. */
+  function saveDraftAndClose() {
+    syncStep();
+    if (!state.draft) return;
+
+    if (!saveDraftToStorage({ ...state.draft })) {
+      // Closing now would throw the work away while saying it was saved.
+      closeUnsavedConfirm();
+      drawerMsg(
+        "This browser will not let the page store drafts, so nothing was saved. " +
+        "Finish the steps and save the experiment instead.",
+        "error"
+      );
+      return;
+    }
+
+    toast("Draft saved. Resume anytime from the menu.", "success");
+    markDraftClean();
+    closeDrawer();
+  }
+
   function closeDrawer() {
     if (closeOverlay($("flyDrawer"), $("flyDrawerScrim"), 220)) {
       state.editingId = null;
       state.saving = false;
+      state.draftBaseline = null;
     }
   }
 
@@ -3245,7 +3379,9 @@
       closeOverlay($("flyFilterDrawer"), $("flyFilterScrim"), 220));
     $("flyPeopleScrim").addEventListener("click", () =>
       closeOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"), 220));
-    $("flyDrawerScrim").addEventListener("click", closeDrawer);
+    $("flyDrawerScrim").addEventListener("click", requestCloseDrawer);
+    // Clicking away from the confirm is the cautious answer: keep editing.
+    $("flyConfirmScrim").addEventListener("click", closeUnsavedConfirm);
     $("flySheetScrim").addEventListener("click", closeDetail);
 
     // ---- File input
@@ -3266,7 +3402,10 @@
         if ($("flyFilterDrawer").classList.contains("open")) {
           return closeOverlay($("flyFilterDrawer"), $("flyFilterScrim"), 220);
         }
-        if ($("flyDrawer").classList.contains("open")) return closeDrawer();
+        // The confirm sits on top of the drawer, so it answers Escape first —
+        // and answers it with the safe option rather than the destructive one.
+        if ($("flyConfirm").classList.contains("open")) return closeUnsavedConfirm();
+        if ($("flyDrawer").classList.contains("open")) return requestCloseDrawer();
         if ($("flySheet").classList.contains("open")) return closeDetail();
         if (state.openPopover) return closePopovers();
         closeSearchDropdown();
@@ -3359,7 +3498,17 @@
         if (delId) deleteExperiment(delId);
         break;
       }
-      case "close-drawer": closeDrawer(); break;
+      case "close-drawer": requestCloseDrawer(); break;
+      case "confirm-keep-editing": closeUnsavedConfirm(); break;
+      case "confirm-discard":
+        closeUnsavedConfirm();
+        markDraftClean();
+        closeDrawer();
+        break;
+      case "confirm-save-draft":
+        closeUnsavedConfirm();
+        saveDraftAndClose();
+        break;
       case "next": goStep(state.step + 1); break;
       case "prev": goStep(state.step - 1); break;
       case "back-to-method":
@@ -3371,14 +3520,7 @@
         paintStep("next");
         break;
       case "save": saveDraft(); break;
-      case "save-draft":
-        syncStep();
-        if (state.draft) {
-          saveDraftToStorage({ ...state.draft });
-          toast("Draft saved. Resume anytime from the menu.", "success");
-          closeDrawer();
-        }
-        break;
+      case "save-draft": saveDraftAndClose(); break;
       case "resume-draft": {
         const draftId = el && el.closest("[data-draft-id]");
         if (draftId) resumeDraft(draftId.dataset.draftId);

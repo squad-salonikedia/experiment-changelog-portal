@@ -2631,3 +2631,72 @@ th.fly-col-actions { z-index: 4; }
   .fly-person-when { font-size: 11px; }
   .fly-person-name { font-size: 13px; }
 }
+
+/* ============================================================
+   UNSAVED WORK CONFIRM
+   ============================================================ */
+
+/* Sits above the drawer (51) it is asking about, and above that drawer's
+   scrim, so the form stays visible behind the question. */
+.fly-confirm-scrim { z-index: 52; background: rgba(15, 10, 30, 0.34); }
+.fly-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 53;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  pointer-events: none;
+}
+.fly-confirm.open { display: flex; }
+
+.fly-confirm-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-xl);
+  padding: 22px 22px 18px;
+  pointer-events: auto;
+  outline: none;
+}
+.fly-confirm.open .fly-confirm-card {
+  animation: flyConfirmIn 220ms var(--ease-out-quart) backwards;
+}
+.fly-confirm.closing .fly-confirm-card {
+  animation: flyConfirmOut 160ms var(--ease-in-quart) both;
+}
+@keyframes flyConfirmIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+@keyframes flyConfirmOut {
+  to { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+
+.fly-confirm-title {
+  margin: 0 0 7px;
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.fly-confirm-body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.fly-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* Stacked on a narrow screen, most-cautious first — so the destructive button
+   is never what the thumb lands on by default. */
+@media (max-width: 460px) {
+  .fly-confirm-actions { flex-direction: column-reverse; }
+  .fly-confirm-actions .fly-btn { width: 100%; justify-content: center; padding: 11px 14px; }
+}
