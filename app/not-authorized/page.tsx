@@ -2,7 +2,47 @@ import Link from "next/link";
 
 const ADMIN_EMAIL = "saloni.kedia@squadstack.ai";
 
-export default function NotAuthorizedPage() {
+const MAILTO =
+  `mailto:${ADMIN_EMAIL}?subject=Request%20Access%20to%20Flywheel&body=Hi%20Saloni%2C%0A%0AI%E2%80%99d%20like%20access%20to%20the%20Flywheel%20experiment%20changelog%20portal.%0A%0AMy%20email%3A%20%5Byour%20%40squadstack.ai%20email%5D%0A%0AThanks!`;
+
+/**
+ * Two different things send people here, and they need different words.
+ *
+ * `?reason=unavailable` means the database could not be read, so we never found
+ * out whether this person is on the invite list — see lib/auth.ts. Showing them
+ * the invite-only copy would accuse the whole team of losing access every time
+ * the database is briefly down, which is exactly what a paused Supabase project
+ * did. Everyone else genuinely is not on the list, and still gets the request
+ * flow unchanged.
+ */
+const VARIANTS = {
+  unauthorized: {
+    icon: "🔒",
+    iconBg: "var(--bad-bg)",
+    title: "Access Required",
+    body: "This portal is invite-only. Contact the admin to get access.",
+    primary: { label: "Request Access", href: MAILTO, mail: true },
+    secondary: { label: "Back to login", href: "/" },
+  },
+  unavailable: {
+    icon: "🛠️",
+    iconBg: "var(--warn-bg)",
+    title: "Portal is unavailable",
+    body:
+      "We could not reach the database to check your access, so this is not about your account. It usually clears in a few minutes — try again, and tell the admin if it keeps happening.",
+    primary: { label: "Try again", href: "/", mail: false },
+    secondary: { label: "Contact the admin", href: MAILTO },
+  },
+} as const;
+
+export default function NotAuthorizedPage({
+  searchParams,
+}: {
+  searchParams?: { reason?: string };
+}) {
+  const v =
+    searchParams?.reason === "unavailable" ? VARIANTS.unavailable : VARIANTS.unauthorized;
+
   return (
     <main
       style={{
@@ -32,7 +72,7 @@ export default function NotAuthorizedPage() {
             width: "56px",
             height: "56px",
             borderRadius: "16px",
-            background: "var(--bad-bg)",
+            background: v.iconBg,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -40,7 +80,7 @@ export default function NotAuthorizedPage() {
             fontSize: "28px",
           }}
         >
-          🔒
+          {v.icon}
         </div>
         <h1
           style={{
@@ -50,7 +90,7 @@ export default function NotAuthorizedPage() {
             letterSpacing: "-0.02em",
           }}
         >
-          Access Required
+          {v.title}
         </h1>
         <p
           style={{
@@ -60,11 +100,11 @@ export default function NotAuthorizedPage() {
             fontSize: "14px",
           }}
         >
-          This portal is invite-only. Contact the admin to get access.
+          {v.body}
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           <a
-            href={`mailto:${ADMIN_EMAIL}?subject=Request%20Access%20to%20Flywheel&body=Hi%20Saloni%2C%0A%0AI%E2%80%99d%20like%20access%20to%20the%20Flywheel%20experiment%20changelog%20portal.%0A%0AMy%20email%3A%20%5Byour%20%40squadstack.ai%20email%5D%0A%0AThanks!`}
+            href={v.primary.href}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -80,14 +120,21 @@ export default function NotAuthorizedPage() {
               transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="4" width="20" height="16" rx="2"/>
-              <path d="M22 4L12 13L2 4"/>
-            </svg>
-            Request Access
+            {v.primary.mail ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="M22 4L12 13L2 4"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                <path d="M21 3v6h-6"/>
+              </svg>
+            )}
+            {v.primary.label}
           </a>
           <Link
-            href="/"
+            href={v.secondary.href}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -103,7 +150,7 @@ export default function NotAuthorizedPage() {
               transition: "all 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-            Back to login
+            {v.secondary.label}
           </Link>
         </div>
       </div>

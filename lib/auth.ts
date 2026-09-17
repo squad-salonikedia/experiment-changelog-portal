@@ -73,8 +73,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         .from("allowed_users")
         .select("email")
         .eq("email", email)
-        .single();
+        .maybeSingle();
 
+      // No access list exists yet (fresh database, before the table is created).
+      // Let people in rather than locking everyone out of a portal whose gate
+      // has not been configured.
       if (
         error?.code === "PGRST204" ||
         error?.code === "PGRST205" ||
@@ -83,7 +86,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       ) {
         return true;
       }
-      if (error?.code === "PGRST116") return "/not-authorized";
+
+      // Any other error means the database did not answer — it is not a verdict
+      // about this person. Turning that into "you are not invited" is what made
+      // a paused Supabase project look like every member losing their access.
+      // Fail closed, but say the true reason.
+      if (error) {
+        console.error("Could not read the invite list", error);
+        return "/not-authorized?reason=unavailable";
+      }
+
+      // The database answered and this email is genuinely not on the list.
       if (!data) return "/not-authorized";
 
       return true;
