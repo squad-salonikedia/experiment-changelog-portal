@@ -939,15 +939,95 @@
      ============================================================ */
   const overlayTimers = new Map();
 
+  const OVERLAY_SELECTOR = ".fly-drawer.open, .fly-sheet.open, .fly-welcome.open";
+
+  /**
+   * While a panel is up, the page behind it must not move. Without this, a
+   * wheel gesture that runs past the end of a panel keeps going and scrolls the
+   * list underneath — which looks like the click went through the overlay.
+   *
+   * Hiding the overflow removes the scrollbar, so the page would jump sideways
+   * by its width; pad the same amount back on to hold everything still.
+   */
+  function syncScrollLock() {
+    const anyOpen = !!document.querySelector(OVERLAY_SELECTOR);
+    const root = document.documentElement;
+    if (anyOpen === root.classList.contains("fly-scroll-locked")) return;
+
+    if (anyOpen) {
+      const gap = window.innerWidth - root.clientWidth;
+      root.style.setProperty("--fly-scrollbar-gap", gap > 0 ? gap + "px" : "0px");
+      root.classList.add("fly-scroll-locked");
+    } else {
+      root.classList.remove("fly-scroll-locked");
+      root.style.removeProperty("--fly-scrollbar-gap");
+    }
+  }
+
+  /**
+   * Tab must not walk out of an open panel into the page behind it, and closing
+   * should put the caret back where it was so keyboard users do not lose their
+   * place.
+   */
+  let overlayReturnFocus = null;
+
+  function focusablesIn(panel) {
+    return [...panel.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),' +
+      ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )].filter((el) => el.offsetParent !== null || el === document.activeElement);
+  }
+
+  function onOverlayTab(e) {
+    if (e.key !== "Tab") return;
+    const panel = document.querySelector(OVERLAY_SELECTOR);
+    if (!panel) return;
+
+    const items = focusablesIn(panel);
+    if (!items.length) return;
+
+    const first = items[0];
+    const last = items[items.length - 1];
+
+    if (!panel.contains(document.activeElement)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  document.addEventListener("keydown", onOverlayTab, true);
+
   function openOverlay(panel, scrim) {
     const key = panel.id;
     clearTimeout(overlayTimers.get(key));
     overlayTimers.delete(key);
+
+    // Only remember the caller on the first panel — a sheet opened from a
+    // drawer should hand focus back to the drawer's trigger, not to itself.
+    if (!document.querySelector(OVERLAY_SELECTOR)) {
+      overlayReturnFocus = document.activeElement;
+    }
+
     for (const el of [panel, scrim]) {
       if (!el) continue;
       el.classList.remove("closing");
       el.classList.add("open");
     }
+
+    syncScrollLock();
+
+    // Focus the panel itself rather than its first control, so a screen reader
+    // reads the heading and nothing is typed into by accident.
+    const target = panel.querySelector(".fly-drawer-panel, .fly-sheet-panel, .fly-welcome-card") || panel;
+    if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    requestAnimationFrame(() => target.focus({ preventScroll: true }));
   }
 
   function closeOverlay(panel, scrim, duration) {
@@ -967,6 +1047,14 @@
         if (el) el.classList.remove("open", "closing");
       }
       overlayTimers.delete(key);
+      // Only after the class is gone does the page count as uncovered.
+      syncScrollLock();
+
+      if (!document.querySelector(OVERLAY_SELECTOR) && overlayReturnFocus) {
+        const back = overlayReturnFocus;
+        overlayReturnFocus = null;
+        if (document.contains(back)) back.focus({ preventScroll: true });
+      }
     }, duration || 220);
     overlayTimers.set(key, timer);
     return true;
@@ -2276,12 +2364,17 @@
         '<span class="fly-person-rank">' + (i + 1) + "</span>" +
         avatar(p.name || p.email, "md") +
         '<span class="fly-person-main">' +
-          '<span class="fly-person-name">' + esc(p.name || p.email) +
-            (isMe ? '<span class="fly-person-you">you</span>' : "") + "</span>" +
-          (p.clients.size
-            ? '<span class="fly-person-meta">' + p.clients.size + " " +
-                (p.clients.size === 1 ? "client" : "clients") + "</span>"
-            : "") +
+          '<span class="fly-person-name">' +
+            '<span class="fly-person-label">' + esc(p.name || p.email) + "</span>" +
+            (isMe ? '<span class="fly-person-you">you</span>' : "") +
+          "</span>" +
+          // Always rendered, even when there is no client to name: an absent
+          // line makes that row shorter than its neighbours and the list ragged.
+          '<span class="fly-person-meta">' +
+            (p.clients.size
+              ? p.clients.size + " " + (p.clients.size === 1 ? "client" : "clients")
+              : "") +
+          "</span>" +
           '<span class="fly-person-track">' +
             '<span class="fly-person-fill" style="--fill:' + share.toFixed(4) + '"></span>' +
           "</span>" +
