@@ -2423,3 +2423,173 @@ th.fly-col-actions { z-index: 4; }
   transition: background var(--d-fast) ease, color var(--d-fast) ease;
 }
 .fly-nudge-dismiss:hover { background: var(--primary-08); color: var(--text-secondary); }
+
+/* ============================================================
+   CONTRIBUTORS
+   ============================================================ */
+
+/* The Contributors stat card is a real <button>; strip the UA chrome and let
+   .fly-stat-card keep supplying the look. */
+.fly-stat-card-btn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.fly-stat-card-btn:focus-visible { outline: none; box-shadow: var(--shadow-md), var(--ring); }
+.fly-stat-card-btn:active { transform: translateY(-1px) scale(0.995); }
+
+.fly-stat-go {
+  display: inline-block;
+  margin-left: 5px;
+  color: var(--primary);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity var(--d-fast) var(--ease-out-quart),
+              transform var(--d-fast) var(--ease-out-quart);
+}
+.fly-stat-card-btn:hover .fly-stat-go,
+.fly-stat-card-btn:focus-visible .fly-stat-go { opacity: 1; transform: translateX(0); }
+
+.fly-people-summary { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+.fly-people-summary strong { color: var(--text-primary); font-weight: 700; }
+
+.fly-people-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* Shares its grid with .fly-person so the labels sit over their columns. */
+.fly-people-head {
+  display: grid;
+  grid-template-columns: var(--person-cols);
+  gap: 11px;
+  padding: 0 13px 7px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.fly-people-head-name { grid-column: 3; }
+.fly-people-head-count { grid-column: 4; text-align: right; }
+.fly-people-head-when { grid-column: 5; text-align: right; }
+
+.fly-people-head,
+.fly-people-list { --person-cols: 18px 28px minmax(0, 1fr) 76px 88px; }
+
+.fly-person {
+  display: grid;
+  grid-template-columns: var(--person-cols);
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--d-fast) ease, border-color var(--d-fast) ease,
+              transform var(--d-fast) var(--ease-out-quart);
+  /* `backwards`, not `both`: a forwards-filling animation would pin transform
+     at its end value and silently kill the hover slide below. */
+  animation: flyPersonIn 240ms var(--ease-out-quart) backwards;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+.fly-person.is-static { cursor: default; }
+.fly-person:not(.is-static):hover {
+  background: var(--primary-04);
+  border-color: var(--border-strong);
+  transform: translateX(2px);
+}
+.fly-person:not(.is-static):active { transform: translateX(2px) scale(0.995); }
+.fly-person:focus-visible { outline: none; box-shadow: var(--ring); }
+
+@keyframes flyPersonIn {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+.fly-person-rank {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.fly-people-list .fly-person:first-child .fly-person-rank { color: var(--primary); }
+
+.fly-person-main { min-width: 0; display: block; }
+.fly-person-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.fly-person-you {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+  background: var(--primary-12);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.fly-person-meta { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+
+.fly-person-track {
+  display: block;
+  height: 3px;
+  margin-top: 7px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+.fly-person-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--primary), #9b6dff);
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+  animation: flyPersonBar 420ms var(--ease-out-expo) backwards;
+  animation-delay: calc(90ms + var(--i, 0) * 26ms);
+}
+@keyframes flyPersonBar {
+  from { transform: scaleX(0); }
+}
+
+.fly-person-count {
+  text-align: right;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.fly-person-when {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  /* The two right-hand columns are sized to hold their own headings on one
+     line; anything narrower wraps "Last activity" into a second row. */
+  .fly-people-head,
+  .fly-people-list { --person-cols: 16px 24px minmax(0, 1fr) 62px 80px; }
+  .fly-people-head { gap: 7px; padding: 0 11px 7px; font-size: 9px; letter-spacing: 0.02em; }
+  .fly-person { gap: 7px; padding: 9px 10px; }
+  .fly-person-count { font-size: 13px; }
+  .fly-person-when { font-size: 11px; }
+  .fly-person-name { font-size: 13px; }
+}

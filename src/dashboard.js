@@ -475,7 +475,7 @@
       statCard("Experiments logged", all.length, clients.size + " clients · " + industries.size + " industries") +
       statCard("Logged in " + monthLabel, thisMonth, thisMonth === 0 ? "Nothing yet this month" : "this month so far") +
       statCard("Use cases covered", useCases.size, industries.size + " industries") +
-      statCard("Contributors", owners.size, "across " + clients.size + " clients", null, Array.from(owners).join(", ")) +
+      statCard("Contributors", owners.size, "see who and when", null, "open-people") +
       "</div>";
 
     html += '<div class="fly-section-title">Top movers <span class="fly-section-sub">click any row to open it</span></div>';
@@ -558,13 +558,20 @@
   }
   let barsAnimated = false;
 
-  function statCard(label, value, sub, color, tooltip) {
-    return '<div class="fly-stat-card"' +
-      (tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : "") + ">" +
+  /**
+   * A card with an `action` renders as a real <button>, not a div wearing a
+   * click handler, so it is tabbable and fires on Enter and Space for free.
+   */
+  function statCard(label, value, sub, color, action) {
+    const tag = action ? "button" : "div";
+    return "<" + tag + ' class="fly-stat-card' + (action ? " fly-stat-card-btn" : "") + '"' +
+      (action ? ' type="button" data-action="' + esc(action) + '"' : "") + ">" +
       '<div class="fly-stat-label">' + esc(label) + "</div>" +
       '<div class="fly-stat-value" data-count="' + value + '"' +
         (color ? ' style="color:' + color + '"' : "") + ">" + value + "</div>" +
-      '<div class="fly-stat-sub">' + esc(sub) + "</div></div>";
+      '<div class="fly-stat-sub">' + esc(sub) +
+        (action ? '<span class="fly-stat-go" aria-hidden="true">\u2192</span>' : "") +
+      "</div></" + tag + ">";
   }
 
   /**
@@ -2157,6 +2164,142 @@
   }
 
   /* ============================================================
+     CONTRIBUTORS — who is logging, how much, how recently
+     ============================================================ */
+
+  /**
+   * Derived from the experiments already in memory rather than from a new
+   * endpoint, so the panel opens instantly and still says something truthful
+   * when the database is unreachable.
+   *
+   * Keyed on email wherever we have one. The display name is whatever was typed
+   * at log time, so keying on that alone would split one person into two the
+   * first time someone wrote their name differently.
+   */
+  function contributorStats() {
+    const byPerson = new Map();
+
+    for (const e of state.entries) {
+      const name = String(e.owner || "").trim();
+      const email = String(e.ownerEmail || "").trim().toLowerCase();
+      if (!name && !email) continue;
+
+      const key = email || name.toLowerCase();
+      let rec = byPerson.get(key);
+      if (!rec) {
+        rec = { name: name, email: email, count: 0, lastMs: 0, lastRaw: "", clients: new Set() };
+        byPerson.set(key, rec);
+      }
+
+      rec.count++;
+      if (!rec.name && name) rec.name = name;
+      if (e.client) rec.clients.add(e.client);
+
+      // createdAt is when the row was actually written. `date` is the date the
+      // experiment ran, which whoever logged it can backdate — so it answers
+      // "when did this happen", not "when was this person last active".
+      const stamp = e.createdAt || e.date || "";
+      const ms = stamp ? Date.parse(stamp) : NaN;
+      if (!isNaN(ms) && ms > rec.lastMs) {
+        rec.lastMs = ms;
+        rec.lastRaw = stamp;
+      }
+    }
+
+    return Array.from(byPerson.values()).sort(
+      (a, b) => b.count - a.count || b.lastMs - a.lastMs || a.name.localeCompare(b.name)
+    );
+  }
+
+  function openPeople() {
+    paintPeople();
+    openOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"));
+  }
+
+  function paintPeople() {
+    const people = contributorStats();
+    const body = $("flyPeopleBody");
+    if (!body) return;
+
+    if (!people.length) {
+      body.innerHTML = '<div class="fly-empty" style="padding:38px 0">' +
+        "Nobody has logged an experiment yet.</div>";
+      return;
+    }
+
+    const total = people.reduce((n, p) => n + p.count, 0);
+    const busiest = people[0].count || 1;
+    const myEmail = String(state.me.email || "").toLowerCase();
+    const myName = String(state.me.name || "").toLowerCase();
+
+    let html = "";
+
+    if (state.loadError) {
+      html += '<div class="fly-msg error show" style="margin-bottom:14px">' +
+        "The database is unreachable, so these are the last figures we loaded.</div>";
+    }
+
+    html += '<div class="fly-people-summary"><strong>' + people.length + "</strong> " +
+      (people.length === 1 ? "person" : "people") + " \u00b7 <strong>" + total + "</strong> " +
+      (total === 1 ? "experiment" : "experiments") + "</div>";
+
+    html += '<div class="fly-people-head">' +
+      '<span class="fly-people-head-name">Contributor</span>' +
+      '<span class="fly-people-head-count">Experiments</span>' +
+      '<span class="fly-people-head-when">Last activity</span>' +
+      "</div>";
+
+    html += '<div class="fly-people-list">';
+
+    people.forEach((p, i) => {
+      const isMe = p.email
+        ? p.email === myEmail
+        : !!myName && p.name.toLowerCase() === myName;
+      const share = Math.max(p.count / busiest, 0.05);
+
+      // A plain date every time. Relative wording ("2d ago") reads fine for a
+      // fresh comment but turns a roster into a mix of two formats, and the
+      // question here is simply when someone last logged something.
+      const last = p.lastMs ? formatDate(p.lastRaw) : "\u2014";
+
+      // Filtering matches on the owner name, so a row with only an email has
+      // nothing to filter by and stays a plain row.
+      const canFilter = !!p.name;
+
+      html += "<" + (canFilter ? "button" : "div") +
+          ' class="fly-person' + (canFilter ? "" : " is-static") + '"' +
+          (canFilter
+            ? ' type="button" data-facet="owner" data-facet-value="' + esc(p.name) + '"' +
+              ' title="Show only experiments logged by ' + esc(p.name) + '"'
+            : "") +
+          ' style="--i:' + Math.min(i, 7) + '">' +
+        '<span class="fly-person-rank">' + (i + 1) + "</span>" +
+        avatar(p.name || p.email, "md") +
+        '<span class="fly-person-main">' +
+          '<span class="fly-person-name">' + esc(p.name || p.email) +
+            (isMe ? '<span class="fly-person-you">you</span>' : "") + "</span>" +
+          (p.clients.size
+            ? '<span class="fly-person-meta">' + p.clients.size + " " +
+                (p.clients.size === 1 ? "client" : "clients") + "</span>"
+            : "") +
+          '<span class="fly-person-track">' +
+            '<span class="fly-person-fill" style="--fill:' + share.toFixed(4) + '"></span>' +
+          "</span>" +
+        "</span>" +
+        '<span class="fly-person-count">' + p.count + "</span>" +
+        '<span class="fly-person-when">' + esc(last) + "</span>" +
+        "</" + (canFilter ? "button" : "div") + ">";
+    });
+
+    html += "</div>";
+    html += '<div class="fly-hint" style="margin-top:14px">Ranked by number of experiments ' +
+      "logged. Last activity is the day they last logged something, not the date the " +
+      "experiment ran. Click anyone to see just their experiments.</div>";
+
+    body.innerHTML = html;
+  }
+
+  /* ============================================================
      MANAGE ACCESS — admin-only invite list
      ============================================================ */
 
@@ -2781,6 +2924,9 @@
       // Any breakdown bar filters the list and jumps to it.
       const facet = t.closest("[data-facet]");
       if (facet) {
+        // A contributor row is itself a facet, so the panel has to get out of
+        // the way before we jump to the filtered list behind it.
+        closeOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"), 220);
         state.filters = { client: "", industry: "", useCase: "", bucket: "", owner: "", metricType: "" };
         state.filters[facet.dataset.facet] = facet.dataset.facetValue;
         state.search = "";
@@ -3004,6 +3150,8 @@
       closeOverlay($("flyConnectDrawer"), $("flyConnectScrim"), 220));
     $("flyFilterScrim").addEventListener("click", () =>
       closeOverlay($("flyFilterDrawer"), $("flyFilterScrim"), 220));
+    $("flyPeopleScrim").addEventListener("click", () =>
+      closeOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"), 220));
     $("flyDrawerScrim").addEventListener("click", closeDrawer);
     $("flySheetScrim").addEventListener("click", closeDetail);
 
@@ -3016,6 +3164,9 @@
     // ---- Keyboard
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        if ($("flyPeopleDrawer").classList.contains("open")) {
+          return closeOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"), 220);
+        }
         if ($("flyConnectDrawer").classList.contains("open")) {
           return closeOverlay($("flyConnectDrawer"), $("flyConnectScrim"), 220);
         }
@@ -3094,6 +3245,12 @@
         break;
       case "close-access":
         closeOverlay($("flyAccessDrawer"), $("flyAccessScrim"), 220);
+        break;
+      case "open-people":
+        openPeople();
+        break;
+      case "close-people":
+        closeOverlay($("flyPeopleDrawer"), $("flyPeopleScrim"), 220);
         break;
       case "invite-user": await inviteUser(); break;
       case "download-skill": await downloadSkill(); break;
