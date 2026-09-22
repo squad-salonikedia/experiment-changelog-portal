@@ -1,6 +1,6 @@
 # Experiment Changelog Portal
 
-SquadStack internal dashboard for logging and browsing voice-AI experiments. Data lives in a live Google Sheet; access requires `@squadstack.ai` Google login.
+SquadStack internal dashboard for logging and browsing voice-AI experiments. Data lives in a live Google Sheet; access requires a `@squadstack.ai` or `@squadstack.com` Google login.
 
 ## Quick start (for engineers)
 

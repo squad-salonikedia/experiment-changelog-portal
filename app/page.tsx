@@ -134,7 +134,7 @@ export default async function HomePage({
               animation: "shakeIn 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
-            Only <strong>@squadstack.ai</strong> accounts can access this portal.
+            That account can’t open this portal. Try your work Google account.
           </div>
         ) : null}
 

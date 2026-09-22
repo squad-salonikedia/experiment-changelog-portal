@@ -5,7 +5,7 @@ This guide is written for non-engineers. You only need to do **three setup steps
 ## What you get
 
 - A public URL (e.g. `https://experiment-changelog.vercel.app`)
-- **Google login required** — only `@squadstack.ai` accounts can open the dashboard
+- **Google login required** — only `@squadstack.ai` and `@squadstack.com` accounts can open the dashboard
 - Live data from your Google Sheet (no copy-paste, no manual export)
 - The same dashboard UI you already have (filters, log experiment, upload CSV, etc.)
 
@@ -39,7 +39,7 @@ You should see a JSON list of experiments.
 
 ## Step 2 — Create Google login credentials (~10 minutes)
 
-The website uses “Sign in with Google” and only allows `@squadstack.ai` emails.
+The website uses “Sign in with Google” and only allows `@squadstack.ai` and `@squadstack.com` emails.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project (or pick an existing SquadStack project)
@@ -97,7 +97,7 @@ npx vercel --prod
 |-------|----------------|
 | Vercel login wall | Every page except the login screen requires a signed-in session |
 | Google OAuth | Only real Google accounts can sign in |
-| `@squadstack.ai` check | Personal Gmail accounts are rejected even if they guess the URL |
+| Workspace domain check | Only `@squadstack.ai` and `@squadstack.com` pass; personal Gmail is rejected even if they guess the URL |
 | Server-side sheet access | The Apps Script URL is stored on Vercel, not in the browser |
 | Google Sheet permissions | The sheet itself stays private in Google Drive |
 
@@ -110,7 +110,7 @@ Sharing the dashboard link **does not** grant access — people still must sign 
 Once deployed, send everyone:
 
 > **Experiment Changelog:** https://YOUR-APP-NAME.vercel.app  
-> Sign in with your `@squadstack.ai` Google account.
+> Sign in with your `@squadstack.ai` or `@squadstack.com` Google account.
 
 ---
 
@@ -164,7 +164,7 @@ there and its `SUPABASE_URL` is unchanged.
 
 | Problem | Fix |
 |---------|-----|
-| “Access denied” after Google login | Make sure you used a `@squadstack.ai` account |
+| “Access denied” after Google login | Make sure you used a `@squadstack.ai` or `@squadstack.com` account |
 | Dashboard empty / “Could not load live sheet data” | Check `APPS_SCRIPT_URL` in Vercel; test `?action=list` in browser |
 | Login redirect error | Add exact Vercel URL to Google OAuth redirect URIs |
 | Saves don’t appear in sheet | Redeploy Apps Script; confirm “Execute as: Me” |

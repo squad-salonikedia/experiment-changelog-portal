@@ -1,6 +1,11 @@
 (function () {
   "use strict";
 
+  // Mirrors ALLOWED_DOMAINS in lib/auth.ts. This copy only shapes the invite
+  // form's wording and its early "that address can never sign in" check — the
+  // server decides for real, on both the invite API and the sign-in itself.
+  const ALLOWED_DOMAINS = ["squadstack.ai", "squadstack.com"];
+
   /* ============================================================
      STATE
      ============================================================ */
@@ -2562,7 +2567,7 @@
 
     html += '<div class="fly-field-label" style="margin-bottom:9px">Invite someone</div>';
     html += '<input class="fly-input" id="flyInviteEmail" type="email" autocomplete="off" ' +
-      'placeholder="name@squadstack.ai" style="margin-bottom:8px" />';
+      'placeholder="name@' + ALLOWED_DOMAINS[0] + '" style="margin-bottom:8px" />';
     html += '<div style="display:flex;gap:8px;margin-bottom:10px">' +
       '<input class="fly-input" id="flyInviteName" type="text" autocomplete="off" ' +
       'placeholder="Full name (optional)" style="flex:1;min-width:0" />' +
@@ -2577,7 +2582,7 @@
     html += codeBlock(location.origin, 0);
     html += '<div class="fly-hint" style="margin-bottom:22px">Nothing is emailed automatically. ' +
       "They open the link, choose <strong>Continue with Google</strong>, and pick their " +
-      "@squadstack.ai account.</div>";
+      ALLOWED_DOMAINS.map((d) => "@" + d).join(" or ") + " account.</div>";
 
     html += '<div class="fly-field-label" style="margin-bottom:9px">Who has access · ' + users.length + "</div>";
     if (!users.length) {
@@ -2626,9 +2631,12 @@
       toast(msg, "error");
     };
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reject("Enter a valid email address.");
-    // Google sign-in is pinned to the workspace domain, so any other address
-    // would sit on the list and never be able to log in.
-    if (!email.endsWith("@squadstack.ai")) return reject("Only @squadstack.ai accounts can sign in.");
+    // Google sign-in is pinned to the workspace domains, so any other address
+    // would sit on the list and never be able to log in. Kept in step with
+    // ALLOWED_DOMAINS in lib/auth.ts, which is what actually enforces this.
+    if (!ALLOWED_DOMAINS.some((d) => email.endsWith("@" + d))) {
+      return reject("Only " + ALLOWED_DOMAINS.map((d) => "@" + d).join(" and ") + " accounts can sign in.");
+    }
 
     const btn = document.querySelector('[data-action="invite-user"]');
     if (btn) { btn.disabled = true; btn.textContent = "Adding…"; }

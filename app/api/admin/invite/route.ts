@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { ALLOWED_DOMAINS, auth, isAllowedDomain } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +45,17 @@ export async function POST(request: Request) {
 
   if (!email || !email.includes("@")) {
     return NextResponse.json({ error: "Valid email required" }, { status: 400 });
+  }
+
+  // Sign-in is pinned to the workspace domains, so any other address would sit
+  // on the list and never be able to log in.
+  if (!isAllowedDomain(String(email))) {
+    return NextResponse.json(
+      {
+        error: `Only ${ALLOWED_DOMAINS.map((d) => "@" + d).join(" and ")} accounts can sign in.`,
+      },
+      { status: 400 }
+    );
   }
 
   const { error } = await supabase.from("allowed_users").insert({

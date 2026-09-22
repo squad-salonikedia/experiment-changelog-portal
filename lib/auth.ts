@@ -5,7 +5,19 @@ import { supabase } from "./supabase";
 import { devLoginEnabled, devPasswordMatches } from "./dev-login";
 import type { Provider } from "next-auth/providers";
 
-const ALLOWED_DOMAIN = "squadstack.ai";
+/**
+ * The company runs on two Google Workspace domains and people are split across
+ * both, so either one is a valid way in. Everything domain-related reads this
+ * list — adding a third domain is a one-line change here.
+ */
+export const ALLOWED_DOMAINS = ["squadstack.ai", "squadstack.com"] as const;
+
+export function isAllowedDomain(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at === -1) return false;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return (ALLOWED_DOMAINS as readonly string[]).includes(domain);
+}
 
 const providers: Provider[] = [
   Google({
@@ -13,7 +25,11 @@ const providers: Provider[] = [
     clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     authorization: {
       params: {
-        hd: ALLOWED_DOMAIN,
+        // `hd` takes a single domain, so it cannot express "either of ours".
+        // `*` narrows the account chooser to Workspace accounts — personal
+        // Gmail still never shows up — and the real verdict is the domain and
+        // invite-list check in `signIn` below, which is where it always was.
+        hd: "*",
         prompt: "select_account",
       },
     },
@@ -35,7 +51,7 @@ if (devLoginEnabled()) {
         const password = String(credentials?.password ?? "");
 
         if (!devLoginEnabled()) return null;
-        if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) return null;
+        if (!isAllowedDomain(email)) return null;
         if (!devPasswordMatches(password)) return null;
 
         // Prefer the invite list's spelling so the test user is indistinguishable
@@ -67,7 +83,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (account?.provider === "dev") return true;
 
       const email = profile?.email?.toLowerCase() ?? "";
-      if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) return false;
+      if (!isAllowedDomain(email)) return false;
 
       const { data, error } = await supabase
         .from("allowed_users")

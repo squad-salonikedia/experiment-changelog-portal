@@ -3,7 +3,7 @@ import Link from "next/link";
 const ADMIN_EMAIL = "saloni.kedia@squadstack.ai";
 
 const MAILTO =
-  `mailto:${ADMIN_EMAIL}?subject=Request%20Access%20to%20Flywheel&body=Hi%20Saloni%2C%0A%0AI%E2%80%99d%20like%20access%20to%20the%20Flywheel%20experiment%20changelog%20portal.%0A%0AMy%20email%3A%20%5Byour%20%40squadstack.ai%20email%5D%0A%0AThanks!`;
+  `mailto:${ADMIN_EMAIL}?subject=Request%20Access%20to%20Flywheel&body=Hi%20Saloni%2C%0A%0AI%E2%80%99d%20like%20access%20to%20the%20Flywheel%20experiment%20changelog%20portal.%0A%0AMy%20email%3A%20%5Byour%20work%20email%5D%0A%0AThanks!`;
 
 /**
  * Two different things send people here, and they need different words.
